@@ -45,7 +45,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         bool isActive;
     }
 
-    Sale public defaultSale;
+    Sale defaultSale;
  
  // Struct to hold rest of the token allocation details
     struct Allocation {
@@ -64,6 +64,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     mapping(uint => mapping(address => uint256)) public totalVestedBalances;
     mapping(uint => mapping(address => uint256)) public totalSaleBalances;
     mapping(address => AllocationType) public addressToAllocationType;
+    mapping(address => bool) public isWhitelisted;
 
     event TokensBought(address indexed buyer, uint256 amount);
     event TokensMinted(address indexed to, uint256 amount);
@@ -113,6 +114,11 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     // Modifier to check if sales are paused
     modifier whenNotPaused() {
         require(!paused, "Sales are paused");
+        _;
+    }
+
+    modifier onlyWhitelisted() {
+        require(isWhitelisted[msg.sender], "Address not whitelisted");
         _;
     }
 
@@ -189,6 +195,14 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         addressToAllocationType[_address] = allocationType;                    // Map the address to its allocation type
         fundAllocationAddressCount++;                                          // Increment the counter
     }
+    
+    function addToWhitelist(address _address) external onlyOwner {
+        isWhitelisted[_address] = true;
+    }
+
+    function removeFromWhitelist(address _address) external onlyOwner {
+        isWhitelisted[_address] = false;
+    }
 
     function mint(uint256 amount) public onlyOwner {
         require((totalSupply() + amount) <= MAX_SUPPLY, "Cannot exceed Maximum supply");
@@ -207,9 +221,13 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         emit TokensBurned(msg.sender, amount, "Manual Burn");
     }
 
-    function buySale(SaleType saleType, uint256 amount) public payable onlyWhenSaleActive(saleType) nonReentrant {
+    function buySale(SaleType saleType, uint256 amount) public onlyWhenSaleActive(saleType) nonReentrant {
+        if (saleType == SaleType.Seed || saleType == SaleType.Private) {
+            require(isWhitelisted[msg.sender], "Only whitelisted addresses can participate in this sale");
+        }
+
         Sale storage sale = sales[saleType];                                // Access the sale from the mapping based on SaleType
-        uint256 cost = amount * sales[saleType].rate;
+        uint256 cost = amount * sale.rate;
     
         require(IERC20(USDT_ADDRESS).allowance(msg.sender, address(this)) >= cost, "Approve USDT first");  // Ensure the sender has approved the contract to spend the required amount of USDT
         require(IERC20(USDT_ADDRESS).transferFrom(msg.sender, owner(), cost), "USDT transfer failed");
