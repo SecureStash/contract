@@ -20,7 +20,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     //address constant USDT_ADDRESS = address(0xdAC17F958D2ee523a2206206994597C13D831ec7);  //ERC20 - USDT Contract Address
     address constant USDT_ADDRESS = address(0x55d398326f99059fF775485246999027B3197955);    //BEP20 - USDT Contract Address
     uint256 public launchTime;
-    uint256 public constant MAX_SUPPLY = 100000000 * 10 ** 18; // 100M tokens with 18 decimals
+    uint256 public constant MAX_SUPPLY = 100000000; // * 10 ** 18; // 100M tokens with 18 decimals
     uint256 public TAX_RATE = 5;                                    // 0.5% tax applied only on DEX trades
     uint256 public constant TOKENS_RELEASE = 30 days;
     uint256 public constant MONTHS_IN_4_YEARS = 48;
@@ -79,8 +79,8 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     event FundAllocationAddressSet(OtherAllocationType allocationType, address newAddress);
     event SaleRateUpdated(SaleType saleType, uint256 newRate);
     event SaleActivated(SaleType saleType, uint256 timestamp);
-    event SalesPaused();
-    event SalesResumed();
+    event SalePaused(SaleType saleType);
+    event SaleResumed(SaleType saleType, uint256 newRate);
 
     constructor() ERC20("Secure Stash", "SST") {
         _mint(address(this), 100000000); // * 10 ** decimals());
@@ -153,6 +153,17 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
             vestedTokens: (totalSupply() * 10 / 1000 * VESTING_PERCENTAGE) / 100,
             monthlyRelease: ((totalSupply() * 10 / 1000 * VESTING_PERCENTAGE) / 100) / MONTHS_IN_4_YEARS
         });
+        
+        // Allocate the tokensAvailable to the contract's address
+        totalSaleBalances[uint(SaleType.Seed)][address(this)] = sales[SaleType.Seed].tokensAvailable;
+        totalSaleBalances[uint(SaleType.Private)][address(this)] = sales[SaleType.Private].tokensAvailable;
+        totalSaleBalances[uint(SaleType.Public)][address(this)] = sales[SaleType.Public].tokensAvailable;
+        VolatileControlBalances[address(this)] = distribution[OtherAllocationType.VolatileControl].initialAllocation;
+        ExchangeListingBalances[address(this)] = distribution[OtherAllocationType.ExchangeListing].initialAllocation;
+        EcosystemDevelopmentBalances[address(this)] = distribution[OtherAllocationType.EcosystemDevelopment].initialAllocation;
+        TeamBalances[address(this)] = distribution[OtherAllocationType.Team].initialAllocation;
+        ReserveBalances[address(this)] = distribution[OtherAllocationType.Reserve].initialAllocation;
+
         totalVested = sales[SaleType.Seed].vestedTokens
             + sales[SaleType.Private].vestedTokens
             + sales[SaleType.Public].vestedTokens
@@ -190,17 +201,18 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     }
 
     // Function to pause sales
-    function pauseSales() external onlyOwner {
-        require(!paused, "Sales are already paused");
-        paused = true;
-        emit SalesPaused();
+    function pauseSale(SaleType saleType) external onlyOwner {
+        require(sales[saleType].isActive, "Sale is not active");
+        sales[saleType].isActive = false;
+        emit SalePaused(saleType);
     }
 
-    // Function to resume sales
-    function resumeSales() external onlyOwner {
-        require(paused, "Sales are not paused");
-        paused = false;
-        emit SalesResumed();
+    // Function to resume a specific sale with an option to set a new rate
+    function resumeSale(SaleType saleType, uint256 newRate) external onlyOwner {
+        require(!sales[saleType].isActive, "Sale is already active");
+        sales[saleType].rate = newRate;  // Update the sale rate with the new rate
+        sales[saleType].isActive = true;
+        emit SaleResumed(saleType, newRate);
     }
 
     function setTaxRates(uint256 _taxRate) external onlyOwner {
@@ -239,8 +251,13 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     
     function mint(uint256 amount) public onlyOwner {
         require((totalSupply() + amount) <= MAX_SUPPLY, "Cannot exceed Maximum supply");
-        _mint (address(this), amount);
-        EcosystemDevelopmentBalances[address(this)] += amount; //Minted tokens gets allocated to ecosytem development
+        address ecosystemWallet = fundAllocationAddressesArray[uint(OtherAllocationType.EcosystemDevelopment)];
+            if (ecosystemWallet != address(0)) {
+                _mint(ecosystemWallet, amount);
+            } else {
+                _mint(address(this), amount);
+                EcosystemDevelopmentBalances[address(this)] += amount;
+            }
         totalMint += amount;
         _updateCirculatingSupply();
         emit TokensMinted(address(this), amount);
@@ -405,7 +422,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         _transfer(address(this), recipient, amountToSend);                     // Transfer the funds
     }
 
-    function viewPendingVestedTokens(address user) public view returns (uint256) {
+    function viewPendingVestedTokens(address user) public view returns (uint256 Tokens_Vested) {
         uint256 totalPending = 0;  // Initialize the total pending tokens to 0
         uint256 periodsSinceLaunch = (block.timestamp - launchTime) / TOKENS_RELEASE;
 
@@ -445,6 +462,35 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     
     function getTotalBurns() public view returns (uint256) {
         return totalBurn;
+    }
+
+/*
+    function getSaleBalances() public view returns (uint256 Seed, uint256 Private, uint256 Public) {
+        return (totalSaleBalances[uint(SaleType.Seed)][address(this)], totalSaleBalances[uint(SaleType.Private)][address(this)], totalSaleBalances[uint(SaleType.Public)][address(this)]);
+    }
+*/
+    function getSaleBalances() public view returns (uint256 SeedSold, uint256 PrivateSold, uint256 PublicSold) {
+        return (sales[SaleType.Seed].sold, sales[SaleType.Private].sold, sales[SaleType.Public].sold);
+    }
+/*    
+    function getSaleBalances2() public view returns (uint256 Seed_Initial_Allocation, uint256 Private_Initial_Allocation, uint256 Public_Initial_Allocation) {
+        return (
+            sales[SaleType.Seed].initialAllocation,
+            sales[SaleType.Private].initialAllocation,
+            sales[SaleType.Public].initialAllocation
+            );
+    }
+    
+    function getSaleBalances3() public view returns (uint256 Seed_Vested, uint256 Private_Vested, uint256 Public_Vested) {
+        return (
+            sales[SaleType.Seed].vestedTokens,
+            sales[SaleType.Private].vestedTokens,
+            sales[SaleType.Public].vestedTokens
+            );
+    }
+*/
+    function getContractBalances() public view returns (uint256 VolatileControl, uint256 ExchangeListing, uint256 EcosystemDevelopment, uint256 Team, uint256 Reserve) {
+        return (VolatileControlBalances[address(this)], ExchangeListingBalances[address(this)], EcosystemDevelopmentBalances[address(this)], TeamBalances[address(this)], ReserveBalances[address(this)]);
     }
 
 }
