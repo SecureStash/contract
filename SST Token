@@ -39,7 +39,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     bool public paused = false;                                     // State variable to track if sales are paused
 
     enum SaleType { Seed, Private, Public }
-    enum AllocationType { Sale, Other }
+    enum AllocationType { Other, Sale }
 
     // Struct to hold sale details
     struct Sale {
@@ -200,12 +200,19 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         return super.transfer(recipient, netValue);         // Call the original transfer function
     }
 
-    function setFundAllocationAddress(AllocationType allocationType, address _address) public onlyOwner {
-        require(fundAllocationAddressCount < 5, "Maximum of 5 fund allocation addresses reached");  // Ensure no more than 5 addresses
-        require(addressToAllocationType[_address] == AllocationType(0), "Address already set for an allocation type");  // Ensure address isn't already set
-        fundAllocationAddressesArray[fundAllocationAddressCount] = _address;   // Add address to the array
-        addressToAllocationType[_address] = allocationType;                    // Map the address to its allocation type
-        fundAllocationAddressCount++;                                          // Increment the counter
+    function updateFundAllocationAddress(uint256 index, address newAddress) public onlyOwner {
+        require(index < 5, "Invalid index");
+        require(addressToAllocationType[newAddress] == AllocationType(0), "New address already set for an allocation type");
+        require(addressToAllocationType[fundAllocationAddressesArray[index]] == AllocationType.Other, "Address at specified index not set for 'Other' allocation type");
+    
+        // Remove the old address from the mapping
+        delete addressToAllocationType[fundAllocationAddressesArray[index]];
+    
+        // Update the address in the fundAllocationAddressesArray
+        fundAllocationAddressesArray[index] = newAddress;
+    
+        // Update the addressToAllocationType mapping with default 'Other' allocation type
+        addressToAllocationType[newAddress] = AllocationType.Other;
     }
 
     function mint(uint256 amount) public onlyOwner {
@@ -301,11 +308,11 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     function withdrawOtherVestedTokens() public onlyOwner nonReentrant {
         uint256 totalAmount = 0;
         uint256[] memory distributionAmounts = new uint256[](5);
-            distributionAmounts[0] = (totalSupply() * volatileControlPercentage / 100) / MONTHS_IN_4_YEARS; //volatileControlMonthlyRelease;
-            distributionAmounts[1] = (totalSupply() * exchangeListingPercentage / 100) / MONTHS_IN_4_YEARS; //exchangeListingMonthlyRelease;
-            distributionAmounts[2] = (totalSupply() * ecosystemDevelopmentPercentage / 100) / MONTHS_IN_4_YEARS; //ecosystemDevelopmentMonthlyRelease;
-            distributionAmounts[3] = (totalSupply() * teamPercentage / 100) / MONTHS_IN_4_YEARS; //teamMonthlyRelease;
-            distributionAmounts[4] = (totalSupply() * reservesPercentage / 100) / MONTHS_IN_4_YEARS;
+            distributionAmounts[0] = (MAX_SUPPLY * volatileControlPercentage / 100) / MONTHS_IN_4_YEARS; //volatileControlMonthlyRelease;
+            distributionAmounts[1] = (MAX_SUPPLY * exchangeListingPercentage / 100) / MONTHS_IN_4_YEARS; //exchangeListingMonthlyRelease;
+            distributionAmounts[2] = (MAX_SUPPLY * ecosystemDevelopmentPercentage / 100) / MONTHS_IN_4_YEARS; //ecosystemDevelopmentMonthlyRelease;
+            distributionAmounts[3] = (MAX_SUPPLY * teamPercentage / 100) / MONTHS_IN_4_YEARS; //teamMonthlyRelease;
+            distributionAmounts[4] = (MAX_SUPPLY * reservesPercentage / 100) / MONTHS_IN_4_YEARS;
 
         uint256 periodsSinceLaunch = (block.timestamp - launchTime) / TOKENS_RELEASE;           // No. of months since the contract launch time
         uint256 periodsSinceLastWithdrawal = (block.timestamp - lastWithdrawal[address(this)]) / TOKENS_RELEASE;  // No. of months since the last withdrawal
