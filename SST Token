@@ -19,9 +19,8 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     uint256 public totalVested;
     uint256 public otherInitialAllocation;
     uint256 public combinedSaleBalance;
-    address public deadWallet = 0x000000000000000000000000000000000000dEaD;
-    //address constant USDT_ADDRESS = address(0xdAC17F958D2ee523a2206206994597C13D831ec7);  //ERC20 - USDT Contract Address
-    address constant USDT_ADDRESS = address(0x55d398326f99059fF775485246999027B3197955);    //BEP20 - USDT Contract Address
+    address public deadWallet;
+    address USDT_ADDRESS;
     uint256 public launchTime;
     uint256 public constant MAX_SUPPLY = 100000000 * 10 ** 18;      // 100M tokens with 18 decimals
     uint256 public TAX_RATE = 5;                                    // 0.5% tax applied only on DEX trades
@@ -82,6 +81,9 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         _mint(address(this), MAX_SUPPLY);
         totalMint = totalSupply();
         launchTime = block.timestamp;
+        deadWallet = 0x000000000000000000000000000000000000dEaD;
+        //USDT_ADDRESS = address(0xdAC17F958D2ee523a2206206994597C13D831ec7);  //ERC20 - USDT Contract Address
+        USDT_ADDRESS = address(0x55d398326f99059fF775485246999027B3197955);    //BEP20 - USDT Contract Address
 
         // 96% of the 70M (excluding 30M allocated for sales) are vested. Tokens sold are vested through buy function.
         totalVested = (totalSupply() * volatileControlPercentage / 100 * VESTING_PERCENTAGE) / 100
