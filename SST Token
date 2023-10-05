@@ -2,8 +2,9 @@
 
 /*
 Website : https://securestash.in
-Telegram: https://twitter.com/SecureStash
-Twitter : https://t.me/securestash
+Telegram: https://t.me/securestash
+Twitter : https://twitter.com/SecureStash
+Github  : https://github.com/SecureStash/
 */
 
 pragma solidity ^0.8.20;
@@ -16,53 +17,53 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     uint256 public totalMint;
     uint256 public totalBurn;
     uint256 public totalVested;
+    uint256 public otherInitialAllocation;
+    uint256 public combinedSaleBalance;
     address public deadWallet = 0x000000000000000000000000000000000000dEaD;
     //address constant USDT_ADDRESS = address(0xdAC17F958D2ee523a2206206994597C13D831ec7);  //ERC20 - USDT Contract Address
     address constant USDT_ADDRESS = address(0x55d398326f99059fF775485246999027B3197955);    //BEP20 - USDT Contract Address
     uint256 public launchTime;
-    uint256 public constant MAX_SUPPLY = 100000000 * 1e18;          // 100M tokens with 18 decimals
+    uint256 public constant MAX_SUPPLY = 100000000 * 10 ** 18;      // 100M tokens with 18 decimals
     uint256 public TAX_RATE = 5;                                    // 0.5% tax applied only on DEX trades
     uint256 public constant TOKENS_RELEASE = 30 days;
     uint256 public constant MONTHS_IN_4_YEARS = 48;
     uint256 public constant INITIAL_RELEASE_PERCENTAGE = 4;
     uint256 public constant VESTING_PERCENTAGE = 96;
-
+    uint256 internal constant volatileControlPercentage = 50;         // 50% of the total supply
+    uint256 internal constant exchangeListingPercentage = 10;         // 10% of the total supply
+    uint256 internal constant ecosystemDevelopmentPercentage = 5;     // 5% of the total supply
+    uint256 internal constant teamPercentage = 4;                     // 4% of the total supply
+    uint256 internal constant reservesPercentage = 1;                 // 1% of the total supply
+    
     address[5] public fundAllocationAddressesArray;                 // Array to store fund allocation addresses
     uint256 public fundAllocationAddressCount = 0;                  // Counter for the number of fund allocation addresses
     bool public paused = false;                                     // State variable to track if sales are paused
-     
+
     enum SaleType { Seed, Private, Public }
     enum AllocationType { Sale, Other }
 
     // Struct to hold sale details
     struct Sale {
         uint256 tokensAvailable;
-        uint256 initialAllocation;
-        uint256 vestedTokens;
-        uint256 monthlyRelease;
-        uint256 sold;
         uint256 rate;
         bool isActive;
     }
-
-    Sale defaultSale;
  
- // Struct to hold rest of the token allocation details
-    struct Allocation {
-        uint256 tokensAvailable;
-        uint256 initialAllocation;
+    struct SaleData {
+        uint256 initialBalance;
         uint256 vestedTokens;
+        uint256 totalVested;
+        uint256 totalSale;
         uint256 monthlyRelease;
     }
-    
+
     mapping(SaleType => Sale) public sales;                                     
-    mapping(AllocationType => Allocation) public allocations;
+    mapping(SaleType => uint256) public totalTokensSold;
     mapping(address => uint256) public lastWithdrawal;
     mapping(address => bool) public isDex;
-    mapping(uint => mapping(address => uint256)) public initialSaleBalances;
     mapping(uint => mapping(address => uint256)) public vestedSaleTokens;
     mapping(uint => mapping(address => uint256)) public totalVestedBalances;
-    mapping(uint => mapping(address => uint256)) public totalSaleBalances;
+    mapping(uint => mapping(address => SaleData)) public saleData;
     mapping(address => AllocationType) public addressToAllocationType;
     mapping(address => bool) public isWhitelisted;
 
@@ -72,7 +73,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     event TokensWithdrawn(address indexed from, uint256 amount);
     event TokenAllocated(address indexed sender, address indexed recipient, uint256 amount, AllocationType allocationType);
     event TokenVested(address indexed beneficiary, uint256 amount, AllocationType allocationType, uint256 timestamp);
-    //event SaleRateUpdated(SaleType saleType, uint256 newRate);
+    event SaleRateUpdated(SaleType saleType, uint256 newRate);
     event SaleActivated(SaleType saleType, uint256 timestamp);
     event SalePaused(SaleType saleType);
     event SaleResumed(SaleType saleType, uint256 newRate);
@@ -82,26 +83,23 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         totalMint = totalSupply();
         launchTime = block.timestamp;
 
-         // Initializing the Sale allocation
-         defaultSale = Sale({
-            tokensAvailable: 0,
-            initialAllocation: 0,
-            vestedTokens: 0,
-            monthlyRelease: 0,
-            sold: 0,
-            rate: 0,
-            isActive: false
-        });
+        // 96% of the 70M (excluding 30M allocated for sales) are vested. Tokens sold are vested through buy function.
+        totalVested = (totalSupply() * volatileControlPercentage / 100 * VESTING_PERCENTAGE) / 100
+                    + (totalSupply() * exchangeListingPercentage / 100 * VESTING_PERCENTAGE) / 100
+                    + (totalSupply() * ecosystemDevelopmentPercentage / 100 * VESTING_PERCENTAGE) / 100
+                    + (totalSupply() * teamPercentage / 100 * VESTING_PERCENTAGE) / 100
+                    + (totalSupply() * reservesPercentage / 100 * VESTING_PERCENTAGE) / 100;
         
-        // Initializing rest of the token allocation
-        allocations[AllocationType.Other] = Allocation({
-            tokensAvailable: totalSupply() * 700 / 1000,
-            initialAllocation: (totalSupply() * 700 / 1000 * INITIAL_RELEASE_PERCENTAGE) / 100,
-            vestedTokens: (totalSupply() * 700 / 1000 * VESTING_PERCENTAGE) / 100,
-            monthlyRelease: (totalSupply() * 700 / 1000 * VESTING_PERCENTAGE) / 100 / MONTHS_IN_4_YEARS
-        });
+        otherInitialAllocation = (totalSupply() * volatileControlPercentage / 100 * INITIAL_RELEASE_PERCENTAGE) / 100
+                    + (totalSupply() * exchangeListingPercentage / 100 * INITIAL_RELEASE_PERCENTAGE) / 100
+                    + (totalSupply() * ecosystemDevelopmentPercentage / 100 * INITIAL_RELEASE_PERCENTAGE) / 100
+                    + (totalSupply() * teamPercentage / 100 * INITIAL_RELEASE_PERCENTAGE) / 100
+                    + (totalSupply() * reservesPercentage / 100 * INITIAL_RELEASE_PERCENTAGE) / 100;
         
-        totalVested = allocations[AllocationType.Other].vestedTokens;       //Other 30% of the tokens gets vested based on sales
+        sales[SaleType.Seed].tokensAvailable = totalSupply() * 25 / 1000;               // 2.5% of total supply;
+        sales[SaleType.Private].tokensAvailable = totalSupply() * 175 / 1000;           // 17.5% of total supply;
+        sales[SaleType.Public].tokensAvailable = totalSupply() * 10 / 100;              // 10% of total supply;
+        combinedSaleBalance = totalSupply() - (totalVested + otherInitialAllocation);
         circulatingSupply = totalMint - totalBurn - totalVested;
     }
 
@@ -117,24 +115,23 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         _;
     }
 
+    //Modifier to check if users are eligible to participate in seed or private sale
     modifier onlyWhitelisted() {
         require(isWhitelisted[msg.sender], "Address not whitelisted");
         _;
     }
 
-    function _updateCirculatingSupply() private {
-        circulatingSupply = totalMint - totalBurn - totalVested;
-    }
-
     // Function to activate a sale
     function activateSale(SaleType saleType, uint256 rate, uint256 tokensForSale) public onlyOwner {
         require(tokensForSale > 0, "Tokens for sale should be greater than 0");
-        require(tokensForSale <= totalSupply(), "Cannot allocate more tokens than the total supply");
+        require(tokensForSale <= combinedSaleBalance, "Cannot allocate more tokens than the combined sale balance");
+        require(!sales[saleType].isActive, "Sale is already active");
 
         Sale storage sale = sales[saleType];
         sale.rate = rate;
         sale.tokensAvailable = tokensForSale;  // Update the tokens available for the sale
         sale.isActive = true;
+        combinedSaleBalance -= tokensForSale;  // Deduct the allocated tokens from the combined sale balance
 
         emit SaleActivated(saleType, block.timestamp);
     }
@@ -153,6 +150,15 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         sales[saleType].isActive = true;
         emit SaleResumed(saleType, newRate);
     }
+
+    //Function to whitelist users to participate in seed or private sale
+    function addToWhitelist(address _address) external onlyOwner {
+        isWhitelisted[_address] = true;
+    }
+
+    function removeFromWhitelist(address _address) external onlyOwner {
+        isWhitelisted[_address] = false;
+    }
     
     function setTaxRates(uint256 _taxRate) external onlyOwner {
         require(_taxRate <= 5, "Tax cannot exceed 0.5%");
@@ -167,6 +173,10 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     // Function to remove a DEX address
     function removeDex(address _dex) public onlyOwner {
         isDex[_dex] = false;
+    }
+
+    function _updateCirculatingSupply() private {
+        circulatingSupply = totalMint - totalBurn - totalVested;
     }
 
     function transfer(address recipient, uint256 amount) public override nonReentrant returns (bool) {
@@ -195,14 +205,6 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         addressToAllocationType[_address] = allocationType;                    // Map the address to its allocation type
         fundAllocationAddressCount++;                                          // Increment the counter
     }
-    
-    function addToWhitelist(address _address) external onlyOwner {
-        isWhitelisted[_address] = true;
-    }
-
-    function removeFromWhitelist(address _address) external onlyOwner {
-        isWhitelisted[_address] = false;
-    }
 
     function mint(uint256 amount) public onlyOwner {
         require((totalSupply() + amount) <= MAX_SUPPLY, "Cannot exceed Maximum supply");
@@ -221,6 +223,13 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         emit TokensBurned(msg.sender, amount, "Manual Burn");
     }
 
+    function _updateUserSale(SaleData storage userSale, uint256 initialAllocation, uint256 vestedTokens, uint256 totalSale, uint256 monthlyRelease) internal {
+        userSale.initialBalance += initialAllocation;
+        userSale.vestedTokens += vestedTokens;
+        userSale.totalSale += totalSale;
+        userSale.monthlyRelease += monthlyRelease;
+    }
+
     function buySale(SaleType saleType, uint256 amount) public onlyWhenSaleActive(saleType) nonReentrant {
         if (saleType == SaleType.Seed || saleType == SaleType.Private) {
             require(isWhitelisted[msg.sender], "Only whitelisted addresses can participate in this sale");
@@ -233,22 +242,24 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         require(IERC20(USDT_ADDRESS).transferFrom(msg.sender, owner(), cost), "USDT transfer failed");
         require(amount <= sale.tokensAvailable, "Not enough tokens available for sale");
         
-        sale.initialAllocation = (amount * INITIAL_RELEASE_PERCENTAGE) / 100;                        // Initial sale tokens sent
-        sale.vestedTokens += (amount - sale.initialAllocation);             // Sale Tokens sent for vesting
-        totalVested += sale.vestedTokens;                                   // Update the total tokens vested
-        sale.sold += amount;                                                // Update the total sold amount
+        uint256 initialAllocation = (amount * INITIAL_RELEASE_PERCENTAGE) / 100;                        // Initial sale tokens sent
+        uint256 vestedTokens = amount - initialAllocation;             // Sale Tokens sent for vesting
+        uint256 totalSale = amount;
+        uint256 monthlyRelease = ((totalSale - initialAllocation) / MONTHS_IN_4_YEARS);
+        totalVested += vestedTokens;                                        // Update the total tokens vested
         sale.tokensAvailable -= amount;                                     // Update available sale total balances
-        initialSaleBalances[uint(saleType)][msg.sender] += sale.initialAllocation; // Update buyer's initial sale balances
-        vestedSaleTokens[uint(saleType)][msg.sender] += sale.vestedTokens;  // Update buyer's vested sale balances
-        totalSaleBalances[uint(saleType)][msg.sender] += amount;            // Update buyer's total sale balances
-        totalSaleBalances[uint(saleType)][address(this)] -= amount;         // Update available sale balances in contract
-        sale.monthlyRelease += ((totalSaleBalances[uint(saleType)][msg.sender] - initialSaleBalances[uint(saleType)][msg.sender]) / MONTHS_IN_4_YEARS);
+        totalTokensSold[saleType] += amount;                                // Update the total tokens sold for the sale type
+
+        //totalSaleBalances[uint(saleType)][address(this)] -= amount;       // Update available sale balances in contract
+
+        SaleData storage userSale = saleData[uint(saleType)][msg.sender];
+        _updateUserSale(userSale, initialAllocation, vestedTokens, totalSale, monthlyRelease);
         _updateCirculatingSupply();
-        _transfer(address(this), msg.sender, sale.initialAllocation);                   // Transfer the initial allocation to the buyer
+        _transfer(address(this), msg.sender, initialAllocation);                   // Transfer the initial allocation to the buyer
         emit TokensBought(msg.sender, amount);                              // Emit the TokensBought event
         }
 
-    function withdrawSaleVestedTokens() public nonReentrant {
+    function withdrawVestedSaleTokens() public nonReentrant {
         uint256 totalAmount = 0;
 
         // Calculate the number of periods since the contract launch time
@@ -257,28 +268,26 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         // Iterate over each sale type
         for (uint i = 0; i < 3; i++) {
             SaleType saleType = SaleType(i);
-            Sale storage sale = sales[saleType];
+            SaleData storage userSale = saleData[uint(saleType)][msg.sender];
+            if (userSale.vestedTokens == 0) continue; // Skip if the user has no vested tokens for the sale type
 
-        if (sale.vestedTokens == 0) continue;                           // Skip the sale if it's not active or no vested tokens
-            
             // Calculate the number of periods since the last withdrawal
             uint256 periodsSinceLastWithdrawal = (block.timestamp - lastWithdrawal[msg.sender]) / TOKENS_RELEASE;
 
             // Ensure the user waits for at least one period before the next withdrawal
             require(periodsSinceLastWithdrawal > 0, "Not yet time to release next batch of tokens");
             require(vestedSaleTokens[uint(saleType)][msg.sender] > 0, "No tokens available in vesting");    
-    
-            uint256 totalAmountToBeReleased = sale.monthlyRelease * periodsSinceLaunch;
-            uint256 amountAlreadyWithdrawn = totalAmountToBeReleased - sale.vestedTokens;
-            uint256 amount = totalAmountToBeReleased - amountAlreadyWithdrawn;
 
-            require(amount <= sale.vestedTokens, "Not enough vested tokens available");
-            sale.vestedTokens -= amount;                                // Update the remaining balances of sale tokens post vesting release
+            uint256 totalAmountToBeReleased = userSale.monthlyRelease * periodsSinceLaunch;
+            uint256 amount = totalAmountToBeReleased - (totalAmountToBeReleased - userSale.vestedTokens);
+
+            require(amount <= userSale.vestedTokens, "Not enough vested tokens available");
+            userSale.vestedTokens -= amount;                                // Update the user's vested tokens post vesting release
             vestedSaleTokens[uint(saleType)][msg.sender] -= amount;     // Update the remaining balances of user's sale tokens post vesting release
             totalVestedBalances[uint(saleType)][address(this)] -= amount; // Update the remaining balances in contract for sale tokens post vesting release
             totalVested -= amount;
             _updateCirculatingSupply();
-            totalAmount += amount;                                      // Uptdate total tokens (all 3 sale) to be released from vesting
+            totalAmount += amount;                                      // Update total tokens (all 3 sale) to be released from vesting
         }
 
         require(totalAmount > 0, "No tokens to withdraw");
@@ -290,12 +299,12 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     function withdrawOtherVestedTokens() public onlyOwner nonReentrant {
         uint256 totalAmount = 0;
         uint256[] memory distributionAmounts = new uint256[](5);
-            distributionAmounts[0] = uint256(1000000) * 1e18;
-            distributionAmounts[1] = uint256(200000) * 1e18;
-            distributionAmounts[2] = uint256(100000) * 1e18;
-            distributionAmounts[3] = uint256(80000) * 1e18;
-            distributionAmounts[4] = uint256(20000) * 1e18;
-    
+            distributionAmounts[0] = (totalSupply() * volatileControlPercentage / 100) / MONTHS_IN_4_YEARS; //volatileControlMonthlyRelease;
+            distributionAmounts[1] = (totalSupply() * exchangeListingPercentage / 100) / MONTHS_IN_4_YEARS; //exchangeListingMonthlyRelease;
+            distributionAmounts[2] = (totalSupply() * ecosystemDevelopmentPercentage / 100) / MONTHS_IN_4_YEARS; //ecosystemDevelopmentMonthlyRelease;
+            distributionAmounts[3] = (totalSupply() * teamPercentage / 100) / MONTHS_IN_4_YEARS; //teamMonthlyRelease;
+            distributionAmounts[4] = (totalSupply() * reservesPercentage / 100) / MONTHS_IN_4_YEARS;
+
         uint256 periodsSinceLaunch = (block.timestamp - launchTime) / TOKENS_RELEASE;           // No. of months since the contract launch time
         uint256 periodsSinceLastWithdrawal = (block.timestamp - lastWithdrawal[address(this)]) / TOKENS_RELEASE;  // No. of months since the last withdrawal
         uint256 maxPeriodsLeft = (MONTHS_IN_4_YEARS >= periodsSinceLaunch ? (MONTHS_IN_4_YEARS  - periodsSinceLaunch + 1) : 0);  //
@@ -343,27 +352,25 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         // Calculate the vested tokens for each sale (Seed, Private, Public)
         for (uint i = 0; i < 3; i++) {
             SaleType saleType = SaleType(i);
-            Sale storage sale = sales[saleType];
+            SaleData storage userSale = saleData[uint(saleType)][user];
 
-            //Skip to the next iteration, if there are no vested tokens for this sale type
-            if (sale.vestedTokens == 0) continue;
-            
             // Calculate the number of periods since the user's last withdrawal.
             uint256 periodsSinceLastWithdrawal = (block.timestamp - lastWithdrawal[user]) / TOKENS_RELEASE;
 
-            // Skip to the next iteration, if no period has passed since the user's last withdrawal.
-            if (periodsSinceLastWithdrawal == 0) continue;
-            uint256 totalAmountToBeReleased = sale.monthlyRelease * periodsSinceLaunch;
-            uint256 amountAlreadyWithdrawn = totalAmountToBeReleased - sale.vestedTokens;
-            uint256 amount = totalAmountToBeReleased - amountAlreadyWithdrawn;
+            // Skip to the next iteration if no period has passed since the user's last withdrawal or if there are no vested tokens for this sale type.
+            if (periodsSinceLastWithdrawal == 0 || userSale.vestedTokens == 0) continue;
+                uint256 totalAmountToBeReleased = userSale.monthlyRelease * periodsSinceLaunch;
+                uint256 amount = totalAmountToBeReleased - (totalAmountToBeReleased - userSale.vestedTokens);
 
-            // If the calculated amount exceeds the vested tokens for this sale type, set the amount to the vested tokens.
-            if (amount > sale.vestedTokens) {
-                amount = sale.vestedTokens;
+                // Uses the min helper function below to get the lesser of the two values
+                totalPending += min(amount, userSale.vestedTokens);
             }
-            totalPending += amount;
-        }
         return totalPending;
+    }
+
+    // Helper function to get the minimum of two values
+    function min(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a < b ? a : b;
     }
 
     function getCirculatingSupply() public view returns (uint256) {
@@ -377,8 +384,12 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     function getTotalBurns() public view returns (uint256) {
         return totalBurn;
     }
-
+    
     function getSaleBalances() public view returns (uint256 SeedSold, uint256 PrivateSold, uint256 PublicSold) {
-        return (sales[SaleType.Seed].sold, sales[SaleType.Private].sold, sales[SaleType.Public].sold);
+        return (
+            totalTokensSold[SaleType.Seed],
+            totalTokensSold[SaleType.Private],
+            totalTokensSold[SaleType.Public]
+        );
     }
 }
