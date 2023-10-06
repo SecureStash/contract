@@ -69,6 +69,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     mapping(uint => mapping(address => uint256)) public totalVestedBalances;
     mapping(uint => mapping(address => SaleData)) public saleData;
     mapping(AllocationType => uint256) public tokensAllocated;    
+    mapping(AllocationType => bool) public initialDistributionDone;
 
     event TokensBought(address indexed buyer, uint256 amount);
     event TokensMinted(address indexed to, uint256 amount);
@@ -228,18 +229,24 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
             }
         }
 
-        // Transfer the tokens allocated for the AllocationType to the new address only if balance is greater than 0
-        uint256 tokensToTransfer = tokensAllocated[allocationType];
-        
-        if (tokensToTransfer > 0) {
-            _transfer(address(this), newAddress, tokensToTransfer); // Transfer tokens from the contract to the new address
-        }
-
-        // Update the address in the fundAllocationAddressesArray
+        // Update the address for the given allocationType
+        addressToAllocationType[newAddress] = allocationType;
         fundAllocationAddressesArray[uint(allocationType)] = newAddress;
 
-        // Update the addressToAllocationType mapping
-        addressToAllocationType[newAddress] = allocationType;
+        // If the initial distribution hasn't occurred for this allocationType, do it now
+        if (!initialDistributionDone[allocationType]){
+
+            // Transfer the tokens allocated for the AllocationType to the new address only if balance is greater than 0
+            uint256 tokensToTransfer = tokensAllocated[allocationType];
+            _transfer(address(this), newAddress, tokensToTransfer); // Transfer tokens from the contract to the new address
+            
+            /*if (tokensToTransfer > 0) {
+            _transfer(address(this), newAddress, tokensToTransfer); // Transfer tokens from the contract to the new address
+            }           //This condition may not be required because the tokens are transferred only during initial distribution*/
+
+            // Mark the initial distribution as done for this allocationType
+            initialDistributionDone[allocationType] = true;
+        }
     }
 
     function mint(uint256 amount) public onlyOwner {
@@ -398,6 +405,32 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     function min(uint256 a, uint256 b) internal pure returns (uint256) {
         return a < b ? a : b;
     }
+    
+    function getSaleBalances() public view returns (uint256 SeedSold, uint256 PrivateSold, uint256 PublicSold) {
+        return (
+            totalTokensSold[SaleType.Seed],
+            totalTokensSold[SaleType.Private],
+            totalTokensSold[SaleType.Public]
+        );
+    }
+
+    function getOtherAllocationTypeAddress() public view returns (address VolatileControl, address ExchangeListing, address EcosystemDevelopment, address Team, address Reserve) {
+        return (
+            fundAllocationAddressesArray[uint(AllocationType.VolatileControl)], 
+            fundAllocationAddressesArray[uint(AllocationType.ExchangeListing)], 
+            fundAllocationAddressesArray[uint(AllocationType.EcosystemDevelopment)], 
+            fundAllocationAddressesArray[uint(AllocationType.Team)], 
+            fundAllocationAddressesArray[uint(AllocationType.Reserve)]);
+    }
+
+    function getOtherAllocationTypeBalances() public view returns (uint256 VolatileControl, uint256 ExchangeListing, uint256 EcosystemDevelopment, uint256 Team, uint256 Reserve) {
+        return (
+            balanceOf(fundAllocationAddressesArray[uint(AllocationType.VolatileControl)]), 
+            balanceOf(fundAllocationAddressesArray[uint(AllocationType.ExchangeListing)]), 
+            balanceOf(fundAllocationAddressesArray[uint(AllocationType.EcosystemDevelopment)]), 
+            balanceOf(fundAllocationAddressesArray[uint(AllocationType.Team)]), 
+            balanceOf(fundAllocationAddressesArray[uint(AllocationType.Reserve)]));
+    }
 
     function getCirculatingSupply() public view returns (uint256) {
         return circulatingSupply;
@@ -411,24 +444,4 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         return totalBurn;
     }
     
-    function getSaleBalances() public view returns (uint256 SeedSold, uint256 PrivateSold, uint256 PublicSold) {
-        return (
-            totalTokensSold[SaleType.Seed],
-            totalTokensSold[SaleType.Private],
-            totalTokensSold[SaleType.Public]
-        );
-    }
-    
-    function getAddressesForAllAllocationTypes1() public view returns (AllocationAddress[] memory) {
-        AllocationAddress[] memory allocationAddresses = new AllocationAddress[](5);
-
-        allocationAddresses[0] = AllocationAddress("VolatileControl", fundAllocationAddressesArray[uint(AllocationType.VolatileControl)]);
-        allocationAddresses[1] = AllocationAddress("ExchangeListing", fundAllocationAddressesArray[uint(AllocationType.ExchangeListing)]);
-        allocationAddresses[2] = AllocationAddress("EcosystemDevelopment", fundAllocationAddressesArray[uint(AllocationType.EcosystemDevelopment)]);
-        allocationAddresses[3] = AllocationAddress("Team", fundAllocationAddressesArray[uint(AllocationType.Team)]);
-        allocationAddresses[4] = AllocationAddress("Reserve", fundAllocationAddressesArray[uint(AllocationType.Reserve)]);
-
-        return allocationAddresses;
-    }
-
 }
