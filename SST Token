@@ -39,7 +39,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     bool public paused = false;                                     // State variable to track if sales are paused
 
     enum SaleType { Seed, Private, Public }
-    enum AllocationType { Other, Sale }
+    enum AllocationType { VolatileControl, ExchangeListing, EcosystemDevelopment, Team, Reserve }
 
     // Struct to hold sale details
     struct Sale {
@@ -55,16 +55,23 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         uint256 totalSale;
         uint256 monthlyRelease;
     }
+    
+    struct AllocationAddress {
+        string allocationType;
+        address addr;
+    }
 
     mapping(SaleType => Sale) public sales;                                     
     mapping(SaleType => uint256) public totalTokensSold;
+    mapping(SaleType => uint256) public buyRates;
     mapping(address => uint256) public lastWithdrawal;
     mapping(address => bool) public isDex;
+    mapping(address => bool) public isWhitelisted;
+    mapping(address => AllocationType) public addressToAllocationType;
     mapping(uint => mapping(address => uint256)) public vestedSaleTokens;
     mapping(uint => mapping(address => uint256)) public totalVestedBalances;
     mapping(uint => mapping(address => SaleData)) public saleData;
-    mapping(address => AllocationType) public addressToAllocationType;
-    mapping(address => bool) public isWhitelisted;
+    mapping(AllocationType => uint256) public tokensAllocated;    
 
     event TokensBought(address indexed buyer, uint256 amount);
     event TokensMinted(address indexed to, uint256 amount);
@@ -82,8 +89,11 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         totalMint = totalSupply();
         launchTime = block.timestamp;
         deadWallet = 0x000000000000000000000000000000000000dEaD;
-        //USDT_ADDRESS = address(0xdAC17F958D2ee523a2206206994597C13D831ec7);  //ERC20 - USDT Contract Address
-        USDT_ADDRESS = address(0x55d398326f99059fF775485246999027B3197955);    //BEP20 - USDT Contract Address
+
+        // Setting the buy rates for each sale type
+        buyRates[SaleType.Seed] = 8400;
+        buyRates[SaleType.Private] = 400;
+        buyRates[SaleType.Public] = 275;
 
         // 96% of the 70M (excluding 30M allocated for sales) are vested. Tokens sold are vested through buy function.
         totalVested = (totalSupply() * volatileControlPercentage / 100 * VESTING_PERCENTAGE) / 100
@@ -200,19 +210,34 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         return super.transfer(recipient, netValue);         // Call the original transfer function
     }
 
-    function updateFundAllocationAddress(uint256 index, address newAddress) public onlyOwner {
-        require(index < 5, "Invalid index");
-        require(addressToAllocationType[newAddress] == AllocationType(0), "New address already set for an allocation type");
-        require(addressToAllocationType[fundAllocationAddressesArray[index]] == AllocationType.Other, "Address at specified index not set for 'Other' allocation type");
-    
-        // Remove the old address from the mapping
-        delete addressToAllocationType[fundAllocationAddressesArray[index]];
-    
+    function updateFundAllocationAddress(AllocationType allocationType, address newAddress) public onlyOwner {
+        require(newAddress != address(0), "Invalid address");
+        
+        // Check if the address is already assigned to another AllocationType
+        for (uint i = 0; i < 5; i++) {
+            require(fundAllocationAddressesArray[i] != newAddress, "Address already allocated");
+        }
+
+        // If the address is already set for the given allocationType, remove it
+        for (uint i = 0; i < 5; i++) {
+            if (fundAllocationAddressesArray[i] == newAddress) {
+                delete addressToAllocationType[fundAllocationAddressesArray[i]];
+                fundAllocationAddressesArray[i] = address(0);
+            }
+        }
+
+        // Transfer the tokens allocated for the AllocationType to the new address only if balance is greater than 0
+        uint256 tokensToTransfer = tokensAllocated[allocationType];
+        
+        if (tokensToTransfer > 0) {
+            _transfer(address(this), newAddress, tokensToTransfer); // Transfer tokens from the contract to the new address
+        }
+
         // Update the address in the fundAllocationAddressesArray
-        fundAllocationAddressesArray[index] = newAddress;
-    
-        // Update the addressToAllocationType mapping with default 'Other' allocation type
-        addressToAllocationType[newAddress] = AllocationType.Other;
+        fundAllocationAddressesArray[uint(allocationType)] = newAddress;
+
+        // Update the addressToAllocationType mapping
+        addressToAllocationType[newAddress] = allocationType;
     }
 
     function mint(uint256 amount) public onlyOwner {
@@ -239,16 +264,14 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         userSale.monthlyRelease += monthlyRelease;
     }
 
-    function buySale(SaleType saleType, uint256 amount) public onlyWhenSaleActive(saleType) nonReentrant {
+    function buySale(SaleType saleType, uint256 amount) public payable onlyWhenSaleActive(saleType) nonReentrant {
         if (saleType == SaleType.Seed || saleType == SaleType.Private) {
             require(isWhitelisted[msg.sender], "Only whitelisted addresses can participate in this sale");
         }
 
         Sale storage sale = sales[saleType];                                // Access the sale from the mapping based on SaleType
-        uint256 cost = amount * sale.rate;
+        amount = msg.value * buyRates[saleType];
     
-        require(IERC20(USDT_ADDRESS).allowance(msg.sender, address(this)) >= cost, "Approve USDT first");  // Ensure the sender has approved the contract to spend the required amount of USDT
-        require(IERC20(USDT_ADDRESS).transferFrom(msg.sender, owner(), cost), "USDT transfer failed");
         require(amount <= sale.tokensAvailable, "Not enough tokens available for sale");
         
         uint256 initialAllocation = (amount * INITIAL_RELEASE_PERCENTAGE) / 100;                        // Initial sale tokens sent
@@ -258,8 +281,6 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         totalVested += vestedTokens;                                        // Update the total tokens vested
         sale.tokensAvailable -= amount;                                     // Update available sale total balances
         totalTokensSold[saleType] += amount;                                // Update the total tokens sold for the sale type
-
-        //totalSaleBalances[uint(saleType)][address(this)] -= amount;       // Update available sale balances in contract
 
         SaleData storage userSale = saleData[uint(saleType)][msg.sender];
         _updateUserSale(userSale, initialAllocation, vestedTokens, totalSale, monthlyRelease);
@@ -316,16 +337,10 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
 
         uint256 periodsSinceLaunch = (block.timestamp - launchTime) / TOKENS_RELEASE;           // No. of months since the contract launch time
         uint256 periodsSinceLastWithdrawal = (block.timestamp - lastWithdrawal[address(this)]) / TOKENS_RELEASE;  // No. of months since the last withdrawal
-        uint256 maxPeriodsLeft = (MONTHS_IN_4_YEARS >= periodsSinceLaunch ? (MONTHS_IN_4_YEARS  - periodsSinceLaunch + 1) : 0);  //
+        uint256 maxPeriodsLeft = (MONTHS_IN_4_YEARS >= periodsSinceLaunch ? (MONTHS_IN_4_YEARS - periodsSinceLaunch + 1) : 0);
 
         // Determine the number of periods to distribute in this transaction
-        uint256 periodsToDistribute;
-        if (periodsSinceLastWithdrawal <= maxPeriodsLeft) {
-            periodsToDistribute = periodsSinceLastWithdrawal;
-        } else {
-            periodsToDistribute = maxPeriodsLeft;
-        }
-
+        uint256 periodsToDistribute = periodsSinceLastWithdrawal <= maxPeriodsLeft ? periodsSinceLastWithdrawal : maxPeriodsLeft;
         require(periodsToDistribute > 0, "Not yet time to release next batch of tokens");   // Ensure the user waits for at least one period before the next withdrawal
 
         for (uint i = 0; i < 5; i++) {
@@ -401,4 +416,17 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
             totalTokensSold[SaleType.Public]
         );
     }
+    
+    function getAddressesForAllAllocationTypes1() public view returns (AllocationAddress[] memory) {
+        AllocationAddress[] memory allocationAddresses = new AllocationAddress[](5);
+
+        allocationAddresses[0] = AllocationAddress("VolatileControl", fundAllocationAddressesArray[uint(AllocationType.VolatileControl)]);
+        allocationAddresses[1] = AllocationAddress("ExchangeListing", fundAllocationAddressesArray[uint(AllocationType.ExchangeListing)]);
+        allocationAddresses[2] = AllocationAddress("EcosystemDevelopment", fundAllocationAddressesArray[uint(AllocationType.EcosystemDevelopment)]);
+        allocationAddresses[3] = AllocationAddress("Team", fundAllocationAddressesArray[uint(AllocationType.Team)]);
+        allocationAddresses[4] = AllocationAddress("Reserve", fundAllocationAddressesArray[uint(AllocationType.Reserve)]);
+
+        return allocationAddresses;
+    }
+
 }
