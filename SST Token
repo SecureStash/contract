@@ -21,6 +21,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     uint256 public combinedSaleBalance;
     address public deadWallet;
     uint256 public launchTime;
+    uint256 public currentTime;
     uint256 public otherVestingTokensReleased;
     uint256 public constant MAX_SUPPLY = 100000000 * 10 ** 18;      // 100M tokens with 18 decimals
     uint256 public TAX_RATE = 5;                                    // 0.5% tax applied only on DEX trades
@@ -33,7 +34,6 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     uint256 internal constant ecosystemDevelopmentPercentage = 5;     // 5% of the total supply
     uint256 internal constant teamPercentage = 4;                     // 4% of the total supply
     uint256 internal constant reservesPercentage = 1;                 // 1% of the total supply
-    uint256[5] public distributionAmounts;
     
     address[5] public fundAllocationAddressesArray;                 // Array to store fund allocation addresses
         bool public paused = false;                                     // State variable to track if sales are paused
@@ -117,13 +117,13 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
                     + (totalSupply() * teamPercentage / 100 * VESTING_PERCENTAGE) / 100
                     + (totalSupply() * reservesPercentage / 100 * VESTING_PERCENTAGE) / 100;
 
-        // Other vesting tokens monthly release
+                    // Other vesting tokens monthly release
         distributionAmounts[0] = (VESTING_PERCENTAGE * ((MAX_SUPPLY * volatileControlPercentage) / 100) / 100) / MONTHS_IN_4_YEARS;
         distributionAmounts[1] = (VESTING_PERCENTAGE * ((MAX_SUPPLY * exchangeListingPercentage) / 100) / 100) / MONTHS_IN_4_YEARS;
         distributionAmounts[2] = (VESTING_PERCENTAGE * ((MAX_SUPPLY * ecosystemDevelopmentPercentage) / 100) / 100) / MONTHS_IN_4_YEARS;
         distributionAmounts[3] = (VESTING_PERCENTAGE * ((MAX_SUPPLY * teamPercentage) / 100) / 100) / MONTHS_IN_4_YEARS;
         distributionAmounts[4] = (VESTING_PERCENTAGE * ((MAX_SUPPLY * reservesPercentage) / 100) / 100) / MONTHS_IN_4_YEARS;
-
+        
         combinedSaleBalance = totalSupply() - (totalVested + otherInitialAllocation);
         circulatingSupply = totalMint - totalBurn - totalVested;
     }
@@ -345,31 +345,29 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         emit TokensWithdrawn(msg.sender, totalAmount);
     }
 
-    function withdrawOtherVestedTokens() public onlyOwner nonReentrant {
-        uint256 currentTime = block.timestamp;
+    function withdrawOtherVestedTokens() public nonReentrant {
         uint256 totalAmount = 0;
+        currentTime = block.timestamp;
         uint256 periodsSinceLaunch = (currentTime - launchTime) / TOKENS_RELEASE;                                                           // No. of months since the contract launch time
         uint256 periodsSinceLastWithdrawal = (currentTime - lastWithdrawal[address(this)]) / TOKENS_RELEASE;                                // No. of months since the last withdrawal
-        uint256 periodsToRelease = (periodsSinceLaunch <= MONTHS_IN_4_YEARS) ? periodsSinceLaunch : MONTHS_IN_4_YEARS;
-        uint256 totalToBeReleased;
-        uint256 pendingToBeReleased;
-
-        require(periodsSinceLastWithdrawal > 1, "You should wait atleast 30 days from the last withdrawal date");
+        uint256 maxPeriodsToDistribute = (periodsSinceLaunch < MONTHS_IN_4_YEARS) ? periodsSinceLaunch : MONTHS_IN_4_YEARS;
+        uint256 periodsWithdrawn = (lastWithdrawal[address(this)] - launchTime) / TOKENS_RELEASE;
+        uint256 periodsPendingDistribution = maxPeriodsToDistribute - periodsWithdrawn;
+        require(periodsSinceLastWithdrawal >= 1, "Time since last withdrawal is less than 30 days");   // Ensure the user waits for at least one period before the next withdrawal
+        require(periodsPendingDistribution > 0, "No tokens to withdraw");   // Ensure the user waits for at least one period before the next withdrawal
 
         for (uint i = 0; i < 5; i++) {
-            totalToBeReleased = distributionAmounts[i] * periodsToRelease;
-            pendingToBeReleased = totalToBeReleased - otherVestingTokensReleased;
-
-            require(pendingToBeReleased <= totalVested, "No tokens available for withdrawal");
-            require(balanceOf(address(this)) >= pendingToBeReleased, "Not enough tokens in the contract"); //This and above should be same. check it
-            totalAmount += pendingToBeReleased;
-
+            uint256 amount = distributionAmounts[i] * periodsPendingDistribution;
+            totalAmount += amount;
+            // Ensure there are enough tokens in the contract for the distribution
+            require(balanceOf(address(this)) >= amount, "Not enough tokens in the contract");
+            // Ensure there are enough vested tokens for the distribution    
+            require(totalAmount <= totalVested, "Not enough vested tokens available");
             // Transfer the tokens directly to the respective address in fundAllocationAddressesArray
-            _transfer(address(this), fundAllocationAddressesArray[i], pendingToBeReleased);
+            _transfer(address(this), fundAllocationAddressesArray[i], amount);
         }
-
+        
         // Update the total vested tokens and circulating supply
-        otherVestingTokensReleased += totalAmount;
         totalVested -= totalAmount;
         _updateCirculatingSupply();
 
