@@ -337,10 +337,11 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     }
 
     function withdrawOtherVestedTokens() public onlyOwner nonReentrant {
+        uint256 currentTime = block.timestamp;
         uint256 totalAmount = 0;
         uint256[] memory distributionAmounts = new uint256[](5);
-        uint256 periodsSinceLaunch = (block.timestamp - launchTime) / TOKENS_RELEASE;                                                           // No. of months since the contract launch time
-        uint256 periodsSinceLastWithdrawal = (block.timestamp - lastWithdrawal[address(this)]) / TOKENS_RELEASE;                                // No. of months since the last withdrawal
+        uint256 periodsSinceLaunch = (currentTime - launchTime) / TOKENS_RELEASE;                                                           // No. of months since the contract launch time
+        uint256 periodsSinceLastWithdrawal = (currentTime - lastWithdrawal[address(this)]) / TOKENS_RELEASE;                                // No. of months since the last withdrawal
         uint256 periodsToDistribute;
         
         if (periodsSinceLaunch <= MONTHS_IN_4_YEARS) {
@@ -349,7 +350,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
             periodsToDistribute = MONTHS_IN_4_YEARS - (periodsSinceLaunch - periodsSinceLastWithdrawal);
         }
         require(periodsToDistribute > 0, "No tokens available for withdrawal");
-
+    
         for (uint i = 0; i < 5; i++) {
             if (i == 0) {
                 distributionAmounts[i] = (VESTING_PERCENTAGE * ((MAX_SUPPLY * volatileControlPercentage) / 100) / 100) / MONTHS_IN_4_YEARS;     //volatileControlMonthlyRelease;
@@ -362,25 +363,25 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
             } else if (i == 4) {
                 distributionAmounts[i] = (VESTING_PERCENTAGE * ((MAX_SUPPLY * reservesPercentage) / 100) / 100) / MONTHS_IN_4_YEARS;            //reserveMonthlyRelease;
             }
-
+    
             uint256 amount = distributionAmounts[i] * periodsToDistribute;
             totalAmount += amount;
             
             // Ensure there are enough tokens in the contract for the distribution
             require(balanceOf(address(this)) >= amount, "Not enough tokens in the contract");
-
+    
             // Transfer the tokens directly to the respective address in fundAllocationAddressesArray
             _transfer(address(this), fundAllocationAddressesArray[i], amount);
         }
         
         // Ensure there are enough vested tokens for the distribution
         require(totalAmount <= totalVested, "Not enough vested tokens available");
-
+    
         // Update the total vested tokens and circulating supply
         totalVested -= totalAmount;
         _updateCirculatingSupply();
-
-        lastWithdrawal[address(this)] = block.timestamp;
+    
+        lastWithdrawal[address(this)] = currentTime;
         emit TokensWithdrawn(address(this), totalAmount);
     }
 
