@@ -21,7 +21,6 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     uint256 public combinedSaleBalance;
     address public deadWallet;
     uint256 public launchTime;
-    uint256 public currentTime;
     uint256 public otherVestingTokensReleased;
     uint256 public constant MAX_SUPPLY = 100000000 * 10 ** 18;      // 100M tokens with 18 decimals
     uint256 public TAX_RATE = 5;                                    // 0.5% tax applied only on DEX trades
@@ -38,7 +37,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     address[5] public fundAllocationAddressesArray;                 // Array to store fund allocation addresses
         bool public paused = false;                                     // State variable to track if sales are paused
 
-    enum SaleType { Seed, Private, Public }
+    enum SaleType { EarlyBird, Private, Public }
     enum AllocationType { VolatileControl, ExchangeListing, EcosystemDevelopment, Team, Reserve }
 
     // Struct to hold sale details
@@ -92,14 +91,14 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         deadWallet = 0x000000000000000000000000000000000000dEaD;
 
         // Initial allocations for each category
-        sales[SaleType.Seed].tokensAvailable = totalSupply() * 25 / 1000;               // 2.5% of total supply;
+        sales[SaleType.EarlyBird].tokensAvailable = totalSupply() * 25 / 1000;               // 2.5% of total supply;
         sales[SaleType.Private].tokensAvailable = totalSupply() * 175 / 1000;           // 17.5% of total supply;
         sales[SaleType.Public].tokensAvailable = totalSupply() * 10 / 100;              // 10% of total supply;
         
         // Setting the buy rates for each sale type
-        sales[SaleType.Seed].rate = 8400;
+        sales[SaleType.EarlyBird].rate = 8000;
         sales[SaleType.Private].rate = 400;
-        sales[SaleType.Public].rate = 275;
+        sales[SaleType.Public].rate = 250;
 
         tokensAllocated[AllocationType.VolatileControl] = (totalSupply() * volatileControlPercentage / 100 * INITIAL_RELEASE_PERCENTAGE) / 100;
         tokensAllocated[AllocationType.ExchangeListing] = (totalSupply() * exchangeListingPercentage / 100 * INITIAL_RELEASE_PERCENTAGE) / 100;
@@ -140,7 +139,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         _;
     }
 
-    //Modifier to check if users are eligible to participate in seed or private sale
+    //Modifier to check if users are eligible to participate in EarlyBird or private sale
     modifier onlyWhitelisted() {
         require(isWhitelisted[msg.sender], "Address not whitelisted");
         _;
@@ -176,7 +175,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         emit SaleResumed(saleType, newRate);
     }
 
-    //Function to whitelist users to participate in seed or private sale
+    //Function to whitelist users to participate in EarlyBird or private sale
     function addToWhitelist(address _address) external onlyOwner {
         isWhitelisted[_address] = true;
     }
@@ -284,13 +283,13 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     }
 
     function buySale(SaleType saleType, uint256 amount) public payable onlyWhenSaleActive(saleType) nonReentrant {
-        if (saleType == SaleType.Seed || saleType == SaleType.Private) {
+        require(msg.value > 0, "Amount should be greater than 0");
+        require(amount <= msg.value * sales[saleType].rate, "Incorrect amount sent");
+        if (saleType == SaleType.EarlyBird || saleType == SaleType.Private) {
             require(isWhitelisted[msg.sender], "Only whitelisted addresses can participate in this sale");
         }
 
         Sale storage sale = sales[saleType];                                // Access the sale from the mapping based on SaleType
-        amount = msg.value * sales[saleType].rate;
-    
         require(amount <= sale.tokensAvailable, "Not enough tokens available for sale");
         
         uint256 initialAllocation = (amount * INITIAL_RELEASE_PERCENTAGE) / 100;                        // Initial sale tokens sent
@@ -347,7 +346,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
 
     function withdrawOtherVestedTokens() public nonReentrant {
         uint256 totalAmount = 0;
-        currentTime = block.timestamp;
+        uint256 currentTime = block.timestamp;
         uint256 periodsSinceLaunch = (currentTime - launchTime) / TOKENS_RELEASE;                                                           // No. of months since the contract launch time
         uint256 periodsSinceLastWithdrawal = (currentTime - lastWithdrawal[address(this)]) / TOKENS_RELEASE;                                // No. of months since the last withdrawal
         uint256 maxPeriodsToDistribute = (periodsSinceLaunch < MONTHS_IN_4_YEARS) ? periodsSinceLaunch : MONTHS_IN_4_YEARS;
@@ -375,17 +374,17 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         emit TokensWithdrawn(address(this), totalAmount);
     }
 
-    function viewPendingVestedTokens(address user) public view returns (uint256 Tokens_Vested) {
-        uint256 totalPending = 0;  // Initialize the total pending tokens to 0
-        uint256 periodsSinceLaunch = (block.timestamp - launchTime) / TOKENS_RELEASE;
+    function viewSaleVestedTokens(address user) public view returns (uint256 Tokens_Vested) {
+        uint256 totalPending = 0;
+        uint256 currentTime = block.timestamp;
+        uint256 periodsSinceLaunch = (currentTime - launchTime) / TOKENS_RELEASE;  // No. of months since the contract launch time
 
-        // Calculate the vested tokens for each sale (Seed, Private, Public)
+        // Calculate the vested tokens for each sale (EarlyBird, Private, Public)
         for (uint i = 0; i < 3; i++) {
             SaleType saleType = SaleType(i);
             SaleData storage userSale = saleData[uint(saleType)][user];
 
-            // Calculate the number of periods since the user's last withdrawal.
-            uint256 periodsSinceLastWithdrawal = (block.timestamp - lastWithdrawal[user]) / TOKENS_RELEASE;
+            uint256 periodsSinceLastWithdrawal = (currentTime - lastWithdrawal[user]) / TOKENS_RELEASE; // No. of months since the last withdrawal
 
             // Skip to the next iteration if no period has passed since the user's last withdrawal or if there are no vested tokens for this sale type.
             if (periodsSinceLastWithdrawal == 0 || userSale.vestedTokens == 0) continue;
@@ -403,9 +402,9 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         return a < b ? a : b;
     }
     
-    function getSaleBalances() public view returns (uint256 SeedSold, uint256 PrivateSold, uint256 PublicSold) {
+    function getSaleBalances() public view returns (uint256 EarlyBirdSold, uint256 PrivateSold, uint256 PublicSold) {
         return (
-            totalTokensSold[SaleType.Seed],
+            totalTokensSold[SaleType.EarlyBird],
             totalTokensSold[SaleType.Private],
             totalTokensSold[SaleType.Public]
         );
