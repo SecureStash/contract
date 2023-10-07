@@ -86,6 +86,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         _mint(address(this), MAX_SUPPLY);
         totalMint = totalSupply();
         launchTime = block.timestamp;
+        lastWithdrawal[address(this)] = launchTime;
         deadWallet = 0x000000000000000000000000000000000000dEaD;
 
         // Initial allocations for each category
@@ -338,37 +339,42 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     function withdrawOtherVestedTokens() public onlyOwner nonReentrant {
         uint256 totalAmount = 0;
         uint256[] memory distributionAmounts = new uint256[](5);
-            distributionAmounts[0] = (MAX_SUPPLY * volatileControlPercentage / 100) / MONTHS_IN_4_YEARS; //volatileControlMonthlyRelease;
-            distributionAmounts[1] = (MAX_SUPPLY * exchangeListingPercentage / 100) / MONTHS_IN_4_YEARS; //exchangeListingMonthlyRelease;
-            distributionAmounts[2] = (MAX_SUPPLY * ecosystemDevelopmentPercentage / 100) / MONTHS_IN_4_YEARS; //ecosystemDevelopmentMonthlyRelease;
-            distributionAmounts[3] = (MAX_SUPPLY * teamPercentage / 100) / MONTHS_IN_4_YEARS; //teamMonthlyRelease;
-            distributionAmounts[4] = (MAX_SUPPLY * reservesPercentage / 100) / MONTHS_IN_4_YEARS;
-
-        uint256 periodsSinceLaunch = (block.timestamp - launchTime) / TOKENS_RELEASE;           // No. of months since the contract launch time
-        uint256 periodsSinceLastWithdrawal = (block.timestamp - lastWithdrawal[address(this)]) / TOKENS_RELEASE;  // No. of months since the last withdrawal
-        uint256 maxPeriodsLeft = (MONTHS_IN_4_YEARS >= periodsSinceLaunch ? (MONTHS_IN_4_YEARS - periodsSinceLaunch + 1) : 0);
-
-        // Determine the number of periods to distribute in this transaction
-        uint256 periodsToDistribute = periodsSinceLastWithdrawal <= maxPeriodsLeft ? periodsSinceLastWithdrawal : maxPeriodsLeft;
-        require(periodsToDistribute > 0, "Not yet time to release next batch of tokens");   // Ensure the user waits for at least one period before the next withdrawal
-
-        for (uint i = 0; i < 5; i++) {
-            uint256 amount = distributionAmounts[i] * periodsToDistribute; // Get the distribution amount for each allocation type multiplied by the periods to distribute
-            totalAmount += amount;
+        uint256 periodsSinceLaunch = (block.timestamp - launchTime) / TOKENS_RELEASE;                                                           // No. of months since the contract launch time
+        uint256 periodsSinceLastWithdrawal = (block.timestamp - lastWithdrawal[address(this)]) / TOKENS_RELEASE;                                // No. of months since the last withdrawal
+        uint256 periodsToDistribute;
+        
+        if (periodsSinceLaunch <= MONTHS_IN_4_YEARS) {
+            periodsToDistribute = periodsSinceLastWithdrawal;
+        } else {
+            periodsToDistribute = MONTHS_IN_4_YEARS - (periodsSinceLaunch - periodsSinceLastWithdrawal);
         }
-
-        // Ensure there are enough vested tokens for the distribution
-        require(totalAmount <= totalVested, "Not enough vested tokens available");
+        require(periodsToDistribute > 0, "No tokens available for withdrawal");
 
         for (uint i = 0; i < 5; i++) {
-            uint256 amount = distributionAmounts[i] * periodsToDistribute;
+            if (i == 0) {
+                distributionAmounts[i] = (VESTING_PERCENTAGE * ((MAX_SUPPLY * volatileControlPercentage) / 100) / 100) / MONTHS_IN_4_YEARS;     //volatileControlMonthlyRelease;
+            } else if (i == 1) {
+                distributionAmounts[i] = (VESTING_PERCENTAGE * ((MAX_SUPPLY * exchangeListingPercentage) / 100) / 100) / MONTHS_IN_4_YEARS;     //exchangeListingMonthlyRelease;
+            } else if (i == 2) {
+                distributionAmounts[i] = (VESTING_PERCENTAGE * ((MAX_SUPPLY * ecosystemDevelopmentPercentage) / 100) / 100) / MONTHS_IN_4_YEARS;//ecosystemDevelopmentMonthlyRelease;
+            } else if (i == 3) {
+                distributionAmounts[i] = (VESTING_PERCENTAGE * ((MAX_SUPPLY * teamPercentage) / 100) / 100) / MONTHS_IN_4_YEARS;                //teamMonthlyRelease;
+            } else if (i == 4) {
+                distributionAmounts[i] = (VESTING_PERCENTAGE * ((MAX_SUPPLY * reservesPercentage) / 100) / 100) / MONTHS_IN_4_YEARS;            //reserveMonthlyRelease;
+            }
 
+            uint256 amount = distributionAmounts[i] * periodsToDistribute;
+            totalAmount += amount;
+            
             // Ensure there are enough tokens in the contract for the distribution
             require(balanceOf(address(this)) >= amount, "Not enough tokens in the contract");
 
             // Transfer the tokens directly to the respective address in fundAllocationAddressesArray
             _transfer(address(this), fundAllocationAddressesArray[i], amount);
         }
+        
+        // Ensure there are enough vested tokens for the distribution
+        require(totalAmount <= totalVested, "Not enough vested tokens available");
 
         // Update the total vested tokens and circulating supply
         totalVested -= totalAmount;
