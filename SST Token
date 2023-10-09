@@ -37,7 +37,7 @@ Tokenomics:-
  1) Trades on DEX will incur a maximum burn tax of 0.5%. Owner will whitelist the DEX address to activate this burn tax for the specific DEX.
  2) Owner can create new tokens, but the total cannot exceed 100M Total Supply. Any new tokens minted will be directly sent by the contract to the ecosystem development wallet.
  3) Owner can change the wallet addresses for token allocations (Volatile Control, Exchange Listing, Ecosystem Development, Team, Reserve).
- 4) Owner can allocate stop an inprogress sale and reactivate the sale later.
+ 4) Owner can stop an inprogress sale and reactivate the sale later.
 
 */
 
@@ -75,14 +75,16 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     // Struct to hold sale details
     struct Sale {
         uint256 tokensAvailable;
+        uint256 tokensSold;
         uint256 rate;
         bool isActive;
     }
  
     struct SaleData {
+        uint256 totalPurchased;
         uint256 initialBalance;
         uint256 vestedTokens;
-        uint256 totalPurchased;
+        uint256 releasedTokens;
         uint256 monthlyRelease;
     }
     
@@ -92,7 +94,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     }
 
     mapping(SaleType => Sale) public sales;                                     
-    mapping(SaleType => uint256) public totalTokensSold;
+    //mapping(SaleType => uint256) public totalTokensSold;
     mapping(address => uint256) public lastWithdrawal;
     mapping(address => bool) public isDex;
     mapping(address => AllocationType) public addressToAllocationType;
@@ -271,10 +273,10 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         emit TokensBurned(msg.sender, amount, "Manual Burn");
     }
 
-    function _updateUserSale(SaleData storage userSale, uint256 initialAllocation, uint256 vestedTokens, uint256 totalPurchased, uint256 monthlyRelease) internal {
+    function _updateUserSale(SaleData storage userSale, uint256 totalPurchased, uint256 initialAllocation, uint256 vestedTokens, uint256 monthlyRelease) internal {
+        userSale.totalPurchased += totalPurchased;
         userSale.initialBalance += initialAllocation;
         userSale.vestedTokens += vestedTokens;
-        userSale.totalPurchased += totalPurchased;
         userSale.monthlyRelease += monthlyRelease;
     }
 
@@ -290,18 +292,18 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         Sale storage sale = sales[currentSaleType];                               // Access the sale from the mapping based on SaleType
         require(amount <= sale.tokensAvailable, "Not enough tokens available for sale");
         
+        uint256 totalPurchased = amount;
         uint256 initialAllocation = (amount * INITIAL_RELEASE_PERCENTAGE) / 100;  // Initial sale tokens sent
         uint256 vestedTokens = amount - initialAllocation;                        // Sale Tokens sent for vesting
-        uint256 totalPurchased = amount;
         uint256 monthlyRelease = ((totalPurchased - initialAllocation) / MONTHS_IN_4_YEARS);
-        totalVested += vestedTokens;                                              // Update the total tokens vested
+        totalVestedBalances[uint(currentSaleType)][address(this)] += vestedTokens;// Update the tokens vested for each sale type for user
+        totalVested += vestedTokens;                                              // Update the total tokens vested within contract
         sale.tokensAvailable -= amount;                                           // Update available sale total balances
-        totalTokensSold[currentSaleType] += amount;                               // Update the total tokens sold for the sale type
+        sale.tokensSold += amount;
 
         SaleData storage userSale = saleData[uint(currentSaleType)][msg.sender];
-        _updateUserSale(userSale, initialAllocation, vestedTokens, totalPurchased, monthlyRelease);
-        // Update the vestedSaleTokens mapping for the user
-        //vestedSaleTokens[uint(currentSaleType)][msg.sender] += vestedTokens;
+        _updateUserSale(userSale, totalPurchased, initialAllocation, vestedTokens, monthlyRelease);
+
         _updateCirculatingSupply();
         _transfer(address(this), msg.sender, initialAllocation);
         emit TokensBought(msg.sender, amount);
@@ -319,31 +321,33 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         uint256 maxPeriodsToDistribute = (periodsSinceLaunch < MONTHS_IN_4_YEARS) ? periodsSinceLaunch : MONTHS_IN_4_YEARS;
         uint256 periodsWithdrawn = (lastWithdrawal[msg.sender] - launchTime) / TOKENS_RELEASE;
         uint256 periodsPendingDistribution = maxPeriodsToDistribute - periodsWithdrawn;
-        require(periodsSinceLastWithdrawal >= 1, "Time since last withdrawal is less than 30 days");   // Ensure the user waits for at least one period before the next withdrawal
+        require(periodsSinceLastWithdrawal > 0, "Time since last withdrawal is less than 30 days");   // Ensure the user waits for at least one period before the next withdrawal
         require(periodsPendingDistribution > 0, "No tokens to withdraw");   // Ensure the user waits for at least one period before the next withdrawal
         
+        uint256 userSaleInitialBalances = 0;
+
         for (uint i = 0; i < 3; i++) {
             SaleType currentSaleType = SaleType(i);
             SaleData storage userSale = saleData[uint(currentSaleType)][msg.sender];
-            
-    //require(vestedSaleTokens[uint(currentSaleType)][msg.sender] > 0, "No tokens available in vesting");
+            userSaleInitialBalances += userSale.initialBalance; // This value is considered to perform mimimum operation to identify users participated in sale
+          
             // Check if the user has any vested tokens for the current sale type
             if(userSale.vestedTokens == 0) {
-            //if(userSale.vestedTokens[uint(currentSaleType)][msg.sender] == 0) {
                 continue; // Skip the current iteration and move to the next sale type
             }
             uint256 amount = userSale.monthlyRelease * periodsPendingDistribution;
             totalAmount += amount;
 
-            // Ensure there are enough tokens in the contract for the distribution
-            require(balanceOf(address(this)) >= amount, "Not enough tokens in the contract");
-            require(totalAmount <= totalVested, "Not enough tokens available to withdraw");
+            // Ensure there are enough tokens available with user
             require(amount <= userSale.vestedTokens, "Not enough vested tokens available in user balances");
-            
             userSale.vestedTokens -= amount;                                     // Update the user's vested tokens post vesting release
-            //vestedSaleTokens[uint(currentSaleType)][msg.sender] -= amount;       // Update the remaining balances of user's sale tokens post vesting release
+            userSale.releasedTokens += amount;                                   // Update the user's released tokens
             totalVestedBalances[uint(currentSaleType)][address(this)] -= amount; // Update the remaining balances in contract for sale tokens post vesting release
         }
+
+        require(userSaleInitialBalances > 0, "User did not participate in any sale");    
+        require(balanceOf(address(this)) >= totalAmount, "Not enough tokens in the contract");  // Ensure there are enough tokens in the contract for the distribution
+        require(totalAmount <= totalVested, "Not enough tokens available to withdraw");         // Ensure total amount to be withdrawn is within the total tokens vested
         totalVested -= totalAmount;
         lastWithdrawal[msg.sender] = currentTime;
         _updateCirculatingSupply();
@@ -363,7 +367,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         uint256 periodsWithdrawn = (lastWithdrawal[address(this)] - launchTime) / TOKENS_RELEASE;
         uint256 periodsPendingDistribution = maxPeriodsToDistribute - periodsWithdrawn;
         
-        require(periodsSinceLastWithdrawal >= 1, "Time since last withdrawal is less than 30 days");   // Ensure the user waits for at least one period before the next withdrawal
+        require(periodsSinceLastWithdrawal > 0, "Time since last withdrawal is less than 30 days");   // Ensure the user waits for at least one period before the next withdrawal
         require(periodsPendingDistribution > 0, "No tokens to withdraw");   // Ensure the user waits for at least one period before the next withdrawal
 
         uint256[] memory distributionAmounts = new uint256[](5);            // Array to store vesting distribution per month for Other Allocation
@@ -390,23 +394,6 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         lastWithdrawal[address(this)] = currentTime;
         _updateCirculatingSupply();
         emit TokensWithdrawn(address(this), totalAmount);
-    }
-    
-    function getVestedBalancesOfUser(address _user) public view returns (uint256 earlyBirdBalance, uint256 privateSaleBalance, uint256 publicSaleBalance, uint256 totalPurchasedBalance) {
-        earlyBirdBalance = saleData[uint(SaleType.EarlyBird)][_user].vestedTokens;
-        privateSaleBalance = saleData[uint(SaleType.Private)][_user].vestedTokens;
-        publicSaleBalance = saleData[uint(SaleType.Public)][_user].vestedTokens;
-        totalPurchasedBalance = earlyBirdBalance + privateSaleBalance + publicSaleBalance;
-        return (earlyBirdBalance, privateSaleBalance, publicSaleBalance, totalPurchasedBalance);
-    }
-
-    function getSaleBalances() public view returns (uint256 EarlyBirdSold, uint256 PrivateSold, uint256 PublicSold) {
-        return (
-            totalTokensSold[SaleType.EarlyBird],
-            totalTokensSold[SaleType.Private],
-            totalTokensSold[SaleType.Public]
-            //totalTokensSold[SaleType.EarlyBird] + totalTokensSold[SaleType.Private] + totalTokensSold[SaleType.Public]
-        );
     }
 
     function getOtherAllocationTypeAddress() public view returns (address VolatileControl, address ExchangeListing, address EcosystemDevelopment, address Team, address Reserve) {
