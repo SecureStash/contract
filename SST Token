@@ -94,18 +94,16 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     }
 
     mapping(SaleType => Sale) public sales;                                     
-    //mapping(SaleType => uint256) public totalTokensSold;
     mapping(address => uint256) public lastWithdrawal;
+    mapping(address => uint256) private _balances;
+    mapping(address => uint256) public totalTokensReleased;
     mapping(address => bool) public isDex;
     mapping(address => AllocationType) public addressToAllocationType;
     mapping(address => bool) public isWhitelisted;
-    //mapping(uint => mapping(address => uint256)) public vestedSaleTokens;
     mapping(uint => mapping(address => uint256)) public totalVestedBalances;
     mapping(uint => mapping(address => SaleData)) public saleData;
     mapping(AllocationType => uint256) public tokensAllocated;
     mapping(AllocationType => bool) public initialDistributionDone;
-    mapping(address => uint256) private _balances;
-    
     
     event TokensBought(address indexed buyer, uint256 amount);
     event TokensMinted(address indexed to, uint256 amount);
@@ -319,10 +317,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
             }
         uint256 periodsSinceLastWithdrawal = (currentTime - lastWithdrawal[msg.sender]) / TOKENS_RELEASE;                                   // No. of months since the last withdrawal
         uint256 maxPeriodsToDistribute = (periodsSinceLaunch < MONTHS_IN_4_YEARS) ? periodsSinceLaunch : MONTHS_IN_4_YEARS;
-        uint256 periodsWithdrawn = (lastWithdrawal[msg.sender] - launchTime) / TOKENS_RELEASE;
-        uint256 periodsPendingDistribution = maxPeriodsToDistribute - periodsWithdrawn;
         require(periodsSinceLastWithdrawal > 0, "Time since last withdrawal is less than 30 days");   // Ensure the user waits for at least one period before the next withdrawal
-        require(periodsPendingDistribution > 0, "No tokens to withdraw");   // Ensure the user waits for at least one period before the next withdrawal
         
         uint256 userSaleInitialBalances = 0;
 
@@ -330,24 +325,27 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
             SaleType currentSaleType = SaleType(i);
             SaleData storage userSale = saleData[uint(currentSaleType)][msg.sender];
             userSaleInitialBalances += userSale.initialBalance; // This value is considered to perform mimimum operation to identify users participated in sale
-          
+        
             // Check if the user has any vested tokens for the current sale type
             if(userSale.vestedTokens == 0) {
                 continue; // Skip the current iteration and move to the next sale type
             }
-            uint256 amount = userSale.monthlyRelease * periodsPendingDistribution;
-            totalAmount += amount;
 
+            uint256 totalShouldHaveReleased = userSale.monthlyRelease * maxPeriodsToDistribute;
+            uint256 pendingRelease = totalShouldHaveReleased - userSale.releasedTokens;
             // Ensure there are enough tokens available with user
-            require(amount <= userSale.vestedTokens, "Not enough vested tokens available in user balances");
-            userSale.vestedTokens -= amount;                                     // Update the user's vested tokens post vesting release
-            userSale.releasedTokens += amount;                                   // Update the user's released tokens
-            totalVestedBalances[uint(currentSaleType)][address(this)] -= amount; // Update the remaining balances in contract for sale tokens post vesting release
+            require(pendingRelease <= userSale.vestedTokens, "Not enough vested tokens available in user balances");
+
+            totalAmount += pendingRelease;
+            userSale.vestedTokens -= pendingRelease;                                     // Update the user's vested tokens post vesting release
+            userSale.releasedTokens += pendingRelease;                                   // Update the user's released tokens
+            totalVestedBalances[uint(currentSaleType)][address(this)] -= pendingRelease; // Update the remaining balances in contract for sale tokens post vesting release
         }
 
         require(userSaleInitialBalances > 0, "User did not participate in any sale");    
         require(balanceOf(address(this)) >= totalAmount, "Not enough tokens in the contract");  // Ensure there are enough tokens in the contract for the distribution
         require(totalAmount <= totalVested, "Not enough tokens available to withdraw");         // Ensure total amount to be withdrawn is within the total tokens vested
+        totalTokensReleased[msg.sender] += totalAmount;
         totalVested -= totalAmount;
         lastWithdrawal[msg.sender] = currentTime;
         _updateCirculatingSupply();
