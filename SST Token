@@ -51,7 +51,6 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     uint256 public totalMint;
     uint256 public totalBurn;
     uint256 public totalVested;
-    address public deadWallet;
     uint256 public launchTime;
     uint256 public totalTokensAllocatedForSales;
     uint256 public constant MAX_SUPPLY = 100000000 * 10 ** 18;      // 100M tokens with 18 decimals
@@ -104,6 +103,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     mapping(uint => mapping(address => SaleData)) public saleData;
     mapping(AllocationType => uint256) public tokensAllocated;
     mapping(AllocationType => bool) public initialDistributionDone;
+    //mapping(AllocationType => bool) public isAddressLocked;
     
     event TokensBought(address indexed buyer, uint256 amount);
     event TokensMinted(address indexed to, uint256 amount);
@@ -120,7 +120,6 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         totalMint = totalSupply();
         launchTime =  block.timestamp;
         lastWithdrawal[address(this)] = launchTime;
-        deadWallet = 0x000000000000000000000000000000000000dEaD;
 
         tokensAllocated[AllocationType.VolatileControl] = (totalSupply() * volatileControlPercentage / 100 * INITIAL_RELEASE_PERCENTAGE) / 100;
         tokensAllocated[AllocationType.ExchangeListing] = (totalSupply() * exchangeListingPercentage / 100 * INITIAL_RELEASE_PERCENTAGE) / 100;
@@ -211,18 +210,26 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         }
         uint256 netValue = amount - tax;                    // Calculate net value to be transferred
 
-        // Send tax to dead wallet and reduce total supply
+        // Directly burn the tax amount
         if (tax > 0) {
-            super.transfer(deadWallet, tax);
-            _burn(deadWallet, tax);                         // Burn the tokens sent to the dead wallet
+            _burn(msg.sender, tax);                         // Burn the tokens directly from the sender's balance
             totalBurn = totalBurn + tax;                    // Update total tokens burnt
             emit TokensBurned(msg.sender, tax, "Tax Burn");
-            _updateCirculatingSupply();                     //Update Circulating Supply
+            _updateCirculatingSupply();                     // Update Circulating Supply
         }
         return super.transfer(recipient, netValue);         // Call the original transfer function
     }
+    
+/*
+    function lockAllocationAddress(AllocationType allocationType, address expectedAddress) public onlyOwner {
+        require(!isAddressLocked[allocationType], "Address for this allocation type is already locked");
+        require(fundAllocationAddressesArray[uint(allocationType)] == expectedAddress, "Provided address does not match the current address for this allocation type");
+        isAddressLocked[allocationType] = true;
+    }
+*/
 
     function updateFundAllocationAddress(AllocationType allocationType, address newAddress) public onlyOwner {
+        //require(!isAddressLocked[allocationType], "Address for this allocation type is locked and cannot be changed");
         require(newAddress != address(0), "Invalid address");
         
         // Check if the address is already assigned to another AllocationType
