@@ -164,6 +164,20 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
 
         emit SaleActivated(saleType, block.timestamp);
     }
+    
+    function allocateTokensForSale(uint256 amount) public onlyOwner {
+        // Ensure fund allocation addresses are set
+        for (uint i = 0; i < 5; i++) {
+            require(fundAllocationAddressesArray[i] != address(0), "Fund allocation address not set");
+        }
+
+        // Calculate the maximum tokens that can be added
+        uint256 maxAddableTokens = balanceOf(address(this)) - (totalVested + totalTokensAllocatedForSales);
+        require(maxAddableTokens > 0, "No tokens available");
+        require(amount <= maxAddableTokens, "Cannot add more than available tokens");
+
+        totalTokensAllocatedForSales += amount;
+    }
 
     function stopSale(SaleType saleType) external onlyOwner {
         require(sales[saleType].isActive, "Sale is still active");
