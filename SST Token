@@ -38,6 +38,7 @@ Tokenomics:-
  2) Owner can create new tokens, but the total cannot exceed 100M Total Supply. Any new tokens minted will be directly sent by the contract to the ecosystem development wallet.
  3) Owner can change the wallet addresses for token allocations (Volatile Control, Exchange Listing, Ecosystem Development, Team, Reserve).
  4) Owner can stop an inprogress sale and reactivate the sale later.
+ 5) Owner has the option to lock token allocated address set for internal distribution. This prevents anyone to modify the address once locked.
 
 */
 
@@ -47,18 +48,18 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract SecureStash is ERC20, Ownable, ReentrancyGuard {
-    uint256 public circulatingSupply;
+    uint256 circulatingSupply;
     uint256 public totalMint;
-    uint256 public totalBurn;
+    uint256 totalBurn;
     uint256 public totalVested;
-    uint256 public launchTime;
+    uint256 launchTime;
     uint256 public totalTokensAllocatedForSales;
-    uint256 public constant MAX_SUPPLY = 100000000 * 10 ** 18;      // 100M tokens with 18 decimals
+    uint256 constant MAX_SUPPLY = 100000000 * 10 ** 18;             // 100M tokens with 18 decimals
     uint256 public TAX_RATE = 5;                                    // 0.5% tax applied only on DEX trades
-    uint256 public constant TOKENS_RELEASE = 30 days;
-    uint256 public constant MONTHS_IN_4_YEARS = 48;
-    uint256 public constant INITIAL_RELEASE_PERCENTAGE = 4;
-    uint256 public constant VESTING_PERCENTAGE = 96;
+    uint256 constant TOKENS_RELEASE = 30 days;
+    uint256 constant MONTHS_IN_4_YEARS = 48;
+    uint256 constant INITIAL_RELEASE_PERCENTAGE = 4;
+    uint256 constant VESTING_PERCENTAGE = 96;
     
     uint256 internal constant combinedSalePercentage = 30;          // 30% of the total supply (Early Bird + Private + Public)
     uint256 internal constant volatileControlPercentage = 50;       // 50% of the total supply
@@ -66,7 +67,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     uint256 internal constant ecosystemDevelopmentPercentage = 5;   // 5% of the total supply
     uint256 internal constant teamPercentage = 4;                   // 4% of the total supply
     uint256 internal constant reservesPercentage = 1;               // 1% of the total supply
-    address[5] public fundAllocationAddressesArray;                 // Array to store fund allocation addresses
+    address[5] fundAllocationAddressesArray;                        // Array to store fund allocation addresses
 
     enum SaleType { EarlyBird, Private, Public }
     enum AllocationType { VolatileControl, ExchangeListing, EcosystemDevelopment, Team, Reserve }
@@ -103,7 +104,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     mapping(uint => mapping(address => SaleData)) public saleData;
     mapping(AllocationType => uint256) public tokensAllocated;
     mapping(AllocationType => bool) public initialDistributionDone;
-    //mapping(AllocationType => bool) public isAddressLocked;
+    mapping(AllocationType => bool) public isAddressLocked;
     
     event TokensBought(address indexed buyer, uint256 amount);
     event TokensMinted(address indexed to, uint256 amount);
@@ -234,13 +235,11 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         return super.transfer(recipient, netValue);         // Call the original transfer function
     }
     
-/*
     function lockAllocationAddress(AllocationType allocationType, address expectedAddress) public onlyOwner {
         require(!isAddressLocked[allocationType], "Address for this allocation type is already locked");
         require(fundAllocationAddressesArray[uint(allocationType)] == expectedAddress, "Provided address does not match the current address for this allocation type");
         isAddressLocked[allocationType] = true;
     }
-*/
 
     function updateFundAllocationAddress(AllocationType allocationType, address newAddress) public onlyOwner {
         //require(!isAddressLocked[allocationType], "Address for this allocation type is locked and cannot be changed");
