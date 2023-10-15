@@ -93,8 +93,8 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         address addr;
     }
 
-    mapping(SaleType => Sale) public sales;                                     
-    mapping(address => uint256) public lastWithdrawal;
+    mapping(SaleType => Sale) public sales;
+    mapping(address => uint256) lastWithdrawal;                                 //Removed public mapping to reduce contract size
     mapping(address => uint256) private _balances;
     mapping(address => uint256) public totalTokensReleased;
     mapping(address => bool) public isDex;
@@ -103,7 +103,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     mapping(uint => mapping(address => uint256)) public totalVestedBalances;
     mapping(uint => mapping(address => SaleData)) public saleData;
     mapping(AllocationType => uint256) public tokensAllocated;
-    mapping(AllocationType => bool) public initialDistributionDone;
+    mapping(AllocationType => bool) initialDistributionDone;                    //Removed public mapping to reduce contract size
     mapping(AllocationType => bool) public isAddressLocked;
     
     event TokensBought(address indexed buyer, uint256 amount);
@@ -115,6 +115,8 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     event SaleRateUpdated(SaleType saleType, uint256 newRate);
     event SaleActivated(SaleType saleType, uint256 timestamp);
     event SaleStopped(SaleType saleType);
+    event TokensAllocatedForSale(address indexed allocator, uint256 amount);
+    event FundAllocationAddressUpdated(AllocationType allocationType, address oldAddress, address newAddress);
 
     constructor() ERC20("Secure Stash", "SST") {
         _mint(address(this), MAX_SUPPLY);
@@ -147,7 +149,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
 
     //Modifier to check if users are eligible to participate in EarlyBird or private sale
     modifier onlyWhitelisted() {
-        require(isWhitelisted[msg.sender], "Address not whitelisted");
+        require(isWhitelisted[_msgSender()], "Address not whitelisted");
         _;
     }
     
@@ -156,6 +158,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         require(tokensForSale > 0, "Tokens for sale should be greater than 0");
         require(!sales[saleType].isActive, "Sale is already active");
         require(tokensForSale <= totalTokensAllocatedForSales, "Not enough tokens allocated for sale"); // Check against totalTokensAllocatedForSales
+        //require(rate > 0, "Invalid price");           //Not included due to contract size
 
         Sale storage sale = sales[saleType];
         sale.rate = rate;
@@ -165,7 +168,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
 
         emit SaleActivated(saleType, block.timestamp);
     }
-    
+
     function allocateTokensForSale(uint256 amount) public onlyOwner {
         // Ensure fund allocation addresses are set
         for (uint i = 0; i < 5; i++) {
@@ -178,6 +181,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         require(amount <= maxAddableTokens, "Cannot add more than available tokens");
 
         totalTokensAllocatedForSales += amount;
+        emit TokensAllocatedForSale(_msgSender(), amount);
     }
 
     function stopSale(SaleType saleType) external onlyOwner {
@@ -191,10 +195,12 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
 
     //Function to whitelist users to participate in EarlyBird or private sale
     function addToWhitelist(address _address) external onlyOwner {
+        //require(_address != address(0), "Invalid address");           //Not included due to contract size
         isWhitelisted[_address] = true;
     }
 
     function removeFromWhitelist(address _address) external onlyOwner {
+        //require(_address != address(0), "Invalid address");           //Not included due to contract size
         isWhitelisted[_address] = false;
     }
     
@@ -205,11 +211,13 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
 
     // Function to add a DEX address
     function addDex(address _dex) public onlyOwner {
+        //require(_dex != address(0), "Invalid address");           //Not included due to contract size
         isDex[_dex] = true;
     }
     
     // Function to remove a DEX address
     function removeDex(address _dex) public onlyOwner {
+        //require(_dex != address(0), "Invalid address");           //Not included due to contract size
         isDex[_dex] = false;
     }
 
@@ -218,23 +226,23 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     }
 
     function transfer(address recipient, uint256 amount) public override nonReentrant returns (bool) {
-        require(balanceOf(msg.sender) >= amount, "Insufficient balance");
+        require(balanceOf(_msgSender()) >= amount, "Insufficient balance");
         uint256 tax = 0;
-        if (isDex[recipient] || isDex[msg.sender]) {
+        if (isDex[recipient] || isDex[_msgSender()]) {
             tax = (amount * TAX_RATE) / 1000;                // Calculate tax
         }
         uint256 netValue = amount - tax;                    // Calculate net value to be transferred
 
         // Directly burn the tax amount
         if (tax > 0) {
-            _burn(msg.sender, tax);                         // Burn the tokens directly from the sender's balance
+            _burn(_msgSender(), tax);                         // Burn the tokens directly from the sender's balance
             totalBurn = totalBurn + tax;                    // Update total tokens burnt
-            emit TokensBurned(msg.sender, tax, "Tax Burn");
+            emit TokensBurned(_msgSender(), tax, "Tax Burn");
             _updateCirculatingSupply();                     // Update Circulating Supply
         }
         return super.transfer(recipient, netValue);         // Call the original transfer function
     }
-    
+
     function lockAllocationAddress(AllocationType allocationType, address expectedAddress) public onlyOwner {
         require(!isAddressLocked[allocationType], "Address for this allocation type is already locked");
         require(fundAllocationAddressesArray[uint(allocationType)] == expectedAddress, "Provided address does not match the current address for this allocation type");
@@ -259,8 +267,10 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         }
 
         // Update the address for the given allocationType
+        address oldAddress = fundAllocationAddressesArray[uint(allocationType)];
         addressToAllocationType[newAddress] = allocationType;
         fundAllocationAddressesArray[uint(allocationType)] = newAddress;
+        emit FundAllocationAddressUpdated(allocationType, oldAddress, newAddress);
 
         // If the initial distribution hasn't occurred for this allocationType, do it now
         if (!initialDistributionDone[allocationType]){
@@ -285,10 +295,10 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     }
     
     function burn(uint256 amount) public nonReentrant {
-        _burn(msg.sender, amount);
+        _burn(_msgSender(), amount);
         totalBurn += amount;
         _updateCirculatingSupply();
-        emit TokensBurned(msg.sender, amount, "Manual Burn");
+        emit TokensBurned(_msgSender(), amount, "Manual Burn");
     }
 
     function _updateUserSale(SaleData storage userSale, uint256 totalPurchased, uint256 initialAllocation, uint256 vestedTokens, uint256 monthlyRelease) internal {
@@ -304,7 +314,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         require(amount == msg.value * sales[currentSaleType].rate, "Incorrect amount sent");        
 
         if (currentSaleType == SaleType.EarlyBird || currentSaleType == SaleType.Private) {
-            require(isWhitelisted[msg.sender], "Only whitelisted addresses can participate in this sale");
+            require(isWhitelisted[_msgSender()], "Only whitelisted addresses can participate in this sale");
         }
 
         Sale storage sale = sales[currentSaleType];                               // Access the sale from the mapping based on SaleType
@@ -319,12 +329,12 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         sale.tokensAvailable -= amount;                                           // Update available sale total balances
         sale.tokensSold += amount;
 
-        SaleData storage userSale = saleData[uint(currentSaleType)][msg.sender];
+        SaleData storage userSale = saleData[uint(currentSaleType)][_msgSender()];
         _updateUserSale(userSale, totalPurchased, initialAllocation, vestedTokens, monthlyRelease);
 
         _updateCirculatingSupply();
-        _transfer(address(this), msg.sender, initialAllocation);
-        emit TokensBought(msg.sender, amount);
+        _transfer(address(this), _msgSender(), initialAllocation);
+        emit TokensBought(_msgSender(), amount);
         payable(owner()).transfer(msg.value);
     }
 
@@ -332,10 +342,10 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         uint256 totalAmount = 0;
         uint256 currentTime = block.timestamp;
         uint256 periodsSinceLaunch = (currentTime - launchTime) / TOKENS_RELEASE;                                                           // No. of months since the contract launch time
-        if (lastWithdrawal[msg.sender] == 0) {
-            lastWithdrawal[msg.sender] = launchTime;
+        if (lastWithdrawal[_msgSender()] == 0) {
+            lastWithdrawal[_msgSender()] = launchTime;
             }
-        uint256 periodsSinceLastWithdrawal = (currentTime - lastWithdrawal[msg.sender]) / TOKENS_RELEASE;                                   // No. of months since the last withdrawal
+        uint256 periodsSinceLastWithdrawal = (currentTime - lastWithdrawal[_msgSender()]) / TOKENS_RELEASE;                                   // No. of months since the last withdrawal
         uint256 maxPeriodsToDistribute = (periodsSinceLaunch < MONTHS_IN_4_YEARS) ? periodsSinceLaunch : MONTHS_IN_4_YEARS;
         require(periodsSinceLastWithdrawal > 0, "Time since last withdrawal is less than 30 days");   // Ensure the user waits for at least one period before the next withdrawal
         
@@ -343,7 +353,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
 
         for (uint i = 0; i < 3; i++) {
             SaleType currentSaleType = SaleType(i);
-            SaleData storage userSale = saleData[uint(currentSaleType)][msg.sender];
+            SaleData storage userSale = saleData[uint(currentSaleType)][_msgSender()];
             userSaleInitialBalances += userSale.initialBalance; // This value is considered to perform mimimum operation to identify users participated in sale
         
             // Check if the user has any vested tokens for the current sale type
@@ -365,21 +375,18 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
         require(userSaleInitialBalances > 0, "User did not participate in any sale");    
         require(balanceOf(address(this)) >= totalAmount, "Not enough tokens in the contract");  // Ensure there are enough tokens in the contract for the distribution
         require(totalAmount <= totalVested, "Not enough tokens available to withdraw");         // Ensure total amount to be withdrawn is within the total tokens vested
-        totalTokensReleased[msg.sender] += totalAmount;
+        totalTokensReleased[_msgSender()] += totalAmount;
         totalVested -= totalAmount;
-        lastWithdrawal[msg.sender] = currentTime;
+        lastWithdrawal[_msgSender()] = currentTime;
         _updateCirculatingSupply();
-        _transfer(address(this), msg.sender, totalAmount); // Transfer the total tokens from the contract to the user
-        emit TokensWithdrawn(msg.sender, totalAmount);
+        _transfer(address(this), _msgSender(), totalAmount); // Transfer the total tokens from the contract to the user
+        emit TokensWithdrawn(_msgSender(), totalAmount);
     }
 
     function withdrawOtherVestedTokens() public onlyOwner nonReentrant {
         uint256 totalAmount = 0;
         uint256 currentTime = block.timestamp;
         uint256 periodsSinceLaunch = (currentTime - launchTime) / TOKENS_RELEASE;                                                           // No. of months since the contract launch time
-        if (lastWithdrawal[address(this)] == 0) {
-            lastWithdrawal[address(this)] = launchTime;
-            }
         uint256 periodsSinceLastWithdrawal = (currentTime - lastWithdrawal[address(this)]) / TOKENS_RELEASE;                                // No. of months since the last withdrawal
         uint256 maxPeriodsToDistribute = (periodsSinceLaunch < MONTHS_IN_4_YEARS) ? periodsSinceLaunch : MONTHS_IN_4_YEARS;
         uint256 periodsWithdrawn = (lastWithdrawal[address(this)] - launchTime) / TOKENS_RELEASE;
@@ -443,5 +450,5 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     function getTotalBurns() public view returns (uint256) {
         return totalBurn;
     }
- 
+
 }
