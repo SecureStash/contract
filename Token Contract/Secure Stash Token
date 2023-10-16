@@ -96,7 +96,7 @@ contract SecureStash is ERC20, Ownable, ReentrancyGuard {
     mapping(SaleType => Sale) public sales;
     mapping(address => uint256) lastWithdrawal;                                 //Removed public mapping to reduce contract size
     mapping(address => uint256) private _balances;
-    mapping(address => uint256) public totalTokensReleased;
+    mapping(address => uint256) totalTokensReleased;                            //Removed public mapping to reduce contract size
     mapping(address => bool) public isDex;
     mapping(address => AllocationType) public addressToAllocationType;
     mapping(address => bool) public isWhitelisted;
