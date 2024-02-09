@@ -32,9 +32,9 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         }
 
         uint256 supplyWithDecimals = maximumSupply * (10 ** uint256(decimals));
-        BurnableToken newToken = new BurnableToken(name, symbol, supplyWithDecimals, msg.sender, decimals);
-        newToken.transferOwnership(msg.sender); // Transfer ownership to the token creator
-        emit TokenCreated(address(newToken), name, symbol, decimals);
+        NewToken mintToken = new NewToken(name, symbol, supplyWithDecimals, msg.sender, decimals);
+        mintToken.transferOwnership(msg.sender); // Transfer ownership to the token creator
+        emit TokenCreated(address(mintToken), name, symbol, decimals);
     }
 
     function setCreationFee(uint256 newFee) external onlyOwner {
@@ -52,8 +52,8 @@ contract TokenFactory is Ownable, ReentrancyGuard {
     }
 }
 
-// BurnableToken extends the ERC20 implementation from OpenZeppelin and adds a burn function.
-contract BurnableToken is ERC20, Ownable, ReentrancyGuard {
+// NewToken extends the ERC20 implementation from OpenZeppelin and adds a burn function.
+contract NewToken is ERC20, Ownable, ReentrancyGuard {
     uint256 private _maximumSupply;
     uint8 private _customDecimals;
 
