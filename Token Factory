@@ -84,6 +84,10 @@ contract NewToken is ERC20, Ownable, ReentrancyGuard {
         return _maximumSupply;
     }
 
+    function totalSupply() public view override returns (uint256) {
+        return super.totalSupply();
+    }
+
     function decimals() public view virtual override returns (uint8) {
         return _customDecimals;
     }
