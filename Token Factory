@@ -1,0 +1,94 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract TokenFactory is Ownable, ReentrancyGuard {
+    uint256 public creationFee;
+    address payable public feeRecipient;
+
+    event TokenCreated(address indexed tokenAddress, string tokenName, string tokenSymbol, uint256 indexed decimals);
+    
+    constructor(uint256 _creationFee, address payable _feeRecipient) {
+        require(_feeRecipient != address(0), "Fee recipient cannot be the zero address");
+        creationFee = _creationFee;
+        feeRecipient = _feeRecipient;
+    }
+
+    function createToken(
+        string memory name,
+        string memory symbol,
+        uint256 maximumSupply,
+        uint8 decimals
+        ) public payable nonReentrant {
+        require(msg.value >= creationFee, "Must pay the creation fee");
+        // Send the creation fee to the fee recipient
+        feeRecipient.transfer(creationFee);
+        // Refund any excess amount sent
+        if (msg.value > creationFee) {
+            payable(msg.sender).transfer(msg.value - creationFee);
+        }
+
+        uint256 supplyWithDecimals = maximumSupply * (10 ** uint256(decimals));
+        BurnableToken newToken = new BurnableToken(name, symbol, supplyWithDecimals, msg.sender, decimals);
+        emit TokenCreated(address(newToken), name, symbol, decimals);
+    }
+
+    function setCreationFee(uint256 newFee) external onlyOwner {
+        creationFee = newFee;
+    }
+
+    function setFeeRecipient(address payable newRecipient) external onlyOwner {
+        require(newRecipient != address(0), "New recipient cannot be the zero address");
+        feeRecipient = newRecipient;
+    }
+
+    // Allow the owner to renounce ownership of the TokenFactory contract.
+    function renounceOwnership() public override onlyOwner {
+        super.renounceOwnership();
+    }
+}
+
+// BurnableToken extends the ERC20 implementation from OpenZeppelin and adds a burn function.
+contract BurnableToken is ERC20, Ownable, ReentrancyGuard {
+    uint256 private _maximumSupply;
+    uint8 private _customDecimals;
+
+    constructor(
+        string memory name,
+        string memory symbol,
+        uint256 maxSupply,
+        address tokenOwner,
+        uint8 Decimals
+    ) ERC20(name, symbol) {
+        require(tokenOwner != address(0), "Token owner cannot be the zero address");
+        _customDecimals = Decimals;
+        _maximumSupply = maxSupply;
+        _mint(tokenOwner, maxSupply);
+    }
+
+    // Allows a token holder to destroy some of their tokens and reduce total supply.
+    function burn(uint256 amount) public {
+        _burn(msg.sender, amount);
+    }
+
+    function mint(address to, uint256 amount) public onlyOwner nonReentrant{
+        require(totalSupply() + amount <= _maximumSupply, "ERC20: cap exceeded");
+        _mint(to, amount);
+    }
+
+    function maximumSupply() public view returns (uint256) {
+        return _maximumSupply;
+    }
+
+    function decimals() public view virtual override returns (uint8) {
+        return _customDecimals;
+    }
+
+    // Allow the owner to renounce ownership of the TokenFactory contract.
+    function renounceOwnership() public override onlyOwner {
+        super.renounceOwnership();
+    }
+}
