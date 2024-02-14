@@ -9,8 +9,16 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 contract TokenFactory is Ownable, ReentrancyGuard {
     uint256 public creationFee;
     address payable public feeRecipient;
+    mapping(address => address[]) public tokensCreatedBy;
 
-    event TokenCreated(address indexed tokenAddress, string tokenName, string tokenSymbol, uint256 indexed decimals);
+    event TokenCreated(
+        address indexed creator,
+        address indexed tokenAddress,
+        string tokenName,
+        string tokenSymbol,
+        uint256 indexed decimals,
+        uint256 totalSupply
+    );
     
     constructor(uint256 _creationFee, address payable _feeRecipient) {
         require(_feeRecipient != address(0), "Fee recipient cannot be the zero address");
@@ -30,8 +38,9 @@ contract TokenFactory is Ownable, ReentrancyGuard {
 
         uint256 supplyWithDecimals = maximumSupply * (10 ** uint256(decimals));
         NewToken mintToken = new NewToken(name, symbol, supplyWithDecimals, _msgSender(), decimals);
-        mintToken.transferOwnership(_msgSender()); // Transfer ownership to the token creator
-        emit TokenCreated(address(mintToken), name, symbol, decimals);
+        mintToken.transferOwnership(_msgSender());
+        tokensCreatedBy[_msgSender()].push(address(mintToken));
+        emit TokenCreated(_msgSender(), address(mintToken), name, symbol, decimals, supplyWithDecimals);
     }
 
     function setCreationFee(uint256 newFee) external onlyOwner {
@@ -43,7 +52,10 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         feeRecipient = newRecipient;
     }
 
-    // Allow the owner to renounce ownership of the TokenFactory contract.
+    function getTokensCreatedBy(address creator) public view returns (address[] memory) {
+        return tokensCreatedBy[creator];
+    }
+
     function renounceOwnership() public override onlyOwner {
         super.renounceOwnership();
     }
