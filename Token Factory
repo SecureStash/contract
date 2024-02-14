@@ -65,7 +65,7 @@ contract TokenFactory is Ownable, ReentrancyGuard {
 contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     uint256 private _maximumSupply;
     uint8 private _customDecimals;
-    bool private _mintingEnabled = true; // Minting is enabled by default
+    bool public mintingEnabled = true; // Minting is enabled by default
 
     event MintingDisabled();
 
@@ -83,13 +83,13 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     }
 
     function mint(address to, uint256 amount) public onlyOwner nonReentrant {
-        require(_mintingEnabled, "Minting has been disabled");
+        require(mintingEnabled, "Minting has been disabled");
         require(totalSupply() + amount <= _maximumSupply, "Cannot exceed Maximum Supply");
         _mint(to, amount);
     }
 
     function disableMinting() public onlyOwner {
-        _mintingEnabled = false;
+        mintingEnabled = false;
         emit MintingDisabled();
     }
 
