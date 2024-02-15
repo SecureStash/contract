@@ -38,10 +38,11 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         uint256 totalSupply
     );
     
-    constructor(uint256 _creationFee, address payable _feeRecipient) {
+    constructor(uint256 _creationFee, address payable _feeRecipient, address _governanceContract) {
         require(_feeRecipient != address(0), "Fee recipient cannot be the zero address");
         creationFee = _creationFee;
         feeRecipient = _feeRecipient;
+        governanceContract = _governanceContract;
     }
 
     modifier onlyGovernance() {
@@ -56,15 +57,12 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         uint8 decimals,
         uint256 buyFeePercent,
         uint256 sellFeePercent,
-        uint256 buyBurnFeePercent,
-        uint256 sellBurnFeePercent,
+        uint256 burnFeePercent,
         address treasury
         ) public payable nonReentrant {
         require(msg.value == creationFee, "Incorrect Fees");
-        require(buyFeePercent <= 10, "Buy fee percent must not exceed 10%");
-        require(sellFeePercent <= 10, "Sell fee percent must not exceed 10%");
-        require(buyBurnFeePercent <= buyFeePercent, "Buy burn fee must not exceed buy fee percent");
-        require(sellBurnFeePercent <= sellFeePercent, "Sell burn fee must not exceed sell fee percent");
+        require(buyFeePercent <= 10 && sellFeePercent <= 10, "Buy / Sell fee percent must not exceed 10%");
+        require(burnFeePercent <= buyFeePercent && burnFeePercent <= sellFeePercent, "Burn fee must not exceed buy / sell fee percent");
         //require(treasury != address(0), "Treasury address cannot be zero");   //Removed due to file size restrictions
         // Send the creation fee to the fee recipient
         feeRecipient.transfer(msg.value);
@@ -78,8 +76,7 @@ contract TokenFactory is Ownable, ReentrancyGuard {
             decimals,
             buyFeePercent,
             sellFeePercent,
-            buyBurnFeePercent,
-            sellBurnFeePercent,
+            burnFeePercent,
             treasury,
             governanceContract
         );
@@ -97,6 +94,11 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         feeRecipient = newRecipient;
     }
 
+    function updateGovContract(address newContract) external onlyGovernance {
+        require(newContract != address(0), "New contract cannot be the zero address");
+        governanceContract = newContract;
+    }
+
     function getTokensCreatedBy(address creator) public view returns (address[] memory) {
         return tokensCreatedBy[creator];
     }
@@ -104,6 +106,7 @@ contract TokenFactory is Ownable, ReentrancyGuard {
     function renounceOwnership() public override onlyOwner {
         super.renounceOwnership();
     }
+
 }
 
 // NewToken extends the ERC20 implementation from OpenZeppelin and adds a burn function.
@@ -117,8 +120,7 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     uint256 public buyFeePercent;
     uint256 public sellFeePercent;
     address public treasury;
-    uint256 public buyBurnFeePercent;
-    uint256 public sellBurnFeePercent;
+    uint256 public burnFeePercent;
     address public governanceContract;
     
     event MintingDisabled();
@@ -138,8 +140,7 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
         uint8 Decimals,
         uint256 _buyFeePercent,
         uint256 _sellFeePercent,
-        uint256 _buyBurnFeePercent,
-        uint256 _sellBurnFeePercent,
+        uint256 _burnFeePercent,
         address _treasury,
         address _governanceContract
     ) ERC20(name, symbol) {
@@ -147,16 +148,15 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
         require(_treasury != address(0), "Treasury address cannot be zero");
         require(_buyFeePercent <= 10, "Buy fee percent must not exceed 10%");
         require(_sellFeePercent <= 10, "Sell fee percent must not exceed 10%");
-        require(_buyBurnFeePercent <= _buyFeePercent, "Buy burn fee must not exceed buy fee percent");
-        require(_sellBurnFeePercent <= _sellFeePercent, "Sell burn fee must not exceed sell fee percent");
+        require(_burnFeePercent <= _buyFeePercent, "Buy burn fee must not exceed buy fee percent");
+        require(_burnFeePercent <= _sellFeePercent, "Sell burn fee must not exceed sell fee percent");
         
         _customDecimals = Decimals;
         _maximumSupply = maxSupply;
         _mint(tokenOwner, maxSupply);
         buyFeePercent = _buyFeePercent;
         sellFeePercent = _sellFeePercent;
-        buyBurnFeePercent = _buyBurnFeePercent;
-        sellBurnFeePercent = _sellBurnFeePercent;
+        burnFeePercent = _burnFeePercent;
         governanceContract = _governanceContract;
     }
 
@@ -218,11 +218,11 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     // Check and apply buy fee and/or burn fee
         if (_isBuying(from)) {
             if (buyFeePercent > 0) {
-                feeAmount = (amount * (buyFeePercent - buyBurnFeePercent)) / 100;
+                feeAmount = (amount * (buyFeePercent - burnFeePercent)) / 100;
                 super._transfer(from, treasury, feeAmount);
             }
-            if (buyBurnFeePercent > 0) {
-            burnAmount = (amount * buyBurnFeePercent) / 100;
+            if (burnFeePercent > 0) {
+            burnAmount = (amount * burnFeePercent) / 100;
             _burn(from, burnAmount);
             }
             emit BuyFeeTransferred(from, treasury, feeAmount);
@@ -232,11 +232,11 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     // Check and apply sell fee and/or burn fee
         if (_isSelling(to)) {
             if (sellFeePercent > 0) {
-            feeAmount = (amount * (sellFeePercent - sellBurnFeePercent)) / 100;
+            feeAmount = (amount * (sellFeePercent - burnFeePercent)) / 100;
             super._transfer(from, treasury, feeAmount);
             }
-        if (sellBurnFeePercent > 0) {
-            burnAmount = (amount * sellBurnFeePercent) / 100;
+        if (burnFeePercent > 0) {
+            burnAmount = (amount * burnFeePercent) / 100;
             _burn(from, burnAmount);
         }
             emit SellFeeTransferred(from, treasury, feeAmount);
