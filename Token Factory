@@ -27,7 +27,8 @@ contract TokenFactory is Ownable, ReentrancyGuard {
     uint256 public creationFee;
     address payable public feeRecipient;
     address public governanceContract;
-    mapping(address => address[]) private tokensCreatedBy;
+    mapping(address => address[]) public tokensCreatedBy;
+    error UnauthorizedCaller();
 
     event TokenCreated(
         address indexed creator,
@@ -46,7 +47,8 @@ contract TokenFactory is Ownable, ReentrancyGuard {
     }
 
     modifier onlyGovernance() {
-        require(msg.sender == governanceContract, "Caller is not the governance contract");
+        //require(_msgSender() == governanceContract, "Caller is not the governance contract");
+        if (_msgSender() != governanceContract) revert UnauthorizedCaller();
         _;
     }
 
@@ -64,7 +66,6 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         require(buyFeePercent <= 10 && sellFeePercent <= 10, "Buy / Sell fee percent must not exceed 10%");
         require(burnFeePercent <= buyFeePercent && burnFeePercent <= sellFeePercent, "Burn fee must not exceed buy / sell fee percent");
         require(treasury != address(0), "Treasury address cannot be zero");
-        // Send the creation fee to the fee recipient
         feeRecipient.transfer(msg.value);
 
         uint256 supplyWithDecimals = maximumSupply * (10 ** uint256(decimals));
@@ -122,6 +123,7 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     address public treasury;
     uint256 public burnFeePercent;
     address public governanceContract;
+    error UnauthorizedCaller();
     
     event MintingDisabled();
     event TreasuryUpdate(address indexed newTreasury);
@@ -159,7 +161,8 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     }
 
     modifier onlyGovernance() {
-        require(msg.sender == governanceContract, "Caller is not the governance contract");
+        //require(_msgSender() == governanceContract, "Caller is not the governance contract");
+        if (_msgSender() != governanceContract) revert UnauthorizedCaller();
         _;
     }
 
