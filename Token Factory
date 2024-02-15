@@ -52,18 +52,18 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         _;
     }
 
-    function updateCreationFee(uint256 newFee) external onlyGovernance {
-        creationFee = newFee;
+    function updateCreationFee(uint256 _newFee) public onlyGovernance {
+        creationFee = _newFee;
     }
 
-    function updateFeeRecipient(address payable newRecipient) external onlyGovernance {
-        require(newRecipient != address(0), "INVALID_RECIPIENT");
-        feeRecipient = newRecipient;
+    function updateFeeRecipient(address payable _newRecipient) public onlyGovernance {
+        require(_newRecipient != address(0), "INVALID_RECIPIENT");
+        feeRecipient = _newRecipient;
     }
 
-    function updateGovContract(address newContract) external onlyGovernance {
-        require(newContract != address(0), "INVALID_RECIPIENT");
-        governanceContract = newContract;
+    function updateGovContract(address _newContract) public onlyGovernance {
+        require(_newContract != address(0), "INVALID_RECIPIENT");
+        governanceContract = _newContract;
     }
 
     function createToken(
@@ -132,6 +132,9 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     event BurnTaxUpdated(uint256 _newTaxPercent);
     event BuyTaxTransferred(address indexed from, address indexed to, uint256 taxAmount);
     event SellTaxTransferred(address indexed from, address indexed to, uint256 taxAmount);
+    event LockedTokenContractUpdated(address indexed newLockedTokenContract);
+    event VestedTokenContractUpdated(address indexed newVestedTokenContract);
+    event StakingTokenContractUpdated(address indexed newStakingTokenContract);
 
     mapping(address => bool) public isLiquidityPool;
 
@@ -168,14 +171,17 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
 
     function setLockedTokenContract(address _lockedTokenContract) public onlyOwner {
         lockedTokenContract = _lockedTokenContract;
+        emit LockedTokenContractUpdated(_lockedTokenContract);
     }
 
     function setVestedTokenContract(address _vestedTokenContract) public onlyOwner {
         vestedTokenContract = _vestedTokenContract;
+        emit VestedTokenContractUpdated(_vestedTokenContract);
     }
 
     function setStakingTokenContract(address _stakingTokenContract) public onlyOwner {
         stakingTokenContract = _stakingTokenContract;
+        emit StakingTokenContractUpdated(_stakingTokenContract);
     }
     
     function updateBuyTax(uint256 _newTaxPercent) public onlyGovernance {
@@ -304,5 +310,5 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     function _isSelling(address to) private view returns (bool) {
         return isLiquidityPool[to];
     }
-    
+
 }
