@@ -135,6 +135,9 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     event LockedTokenContractUpdated(address indexed newLockedTokenContract);
     event VestedTokenContractUpdated(address indexed newVestedTokenContract);
     event StakingTokenContractUpdated(address indexed newStakingTokenContract);
+    event TokenMinted(address indexed to, uint256 amount);
+    event LiquidityPoolAdded(address indexed pool);
+    event LiquidityPoolRemoved(address indexed pool);
 
     mapping(address => bool) public isLiquidityPool;
 
@@ -210,16 +213,19 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
 
     function addLiquidityPool(address _pool) public onlyGovernance {
         isLiquidityPool[_pool] = true;
+        emit LiquidityPoolAdded(_pool);
     }
 
     function removeLiquidityPool(address _pool) public onlyGovernance {
         isLiquidityPool[_pool] = false;
+        emit LiquidityPoolRemoved(_pool);
     }
     
     function mint(address to, uint256 amount) public onlyGovernance nonReentrant {
         require(_mintingEnabled, "MINTING_DISABLED");
         require(totalSupply() + amount <= _maximumSupply, "CANNOT EXCEED MAXIMUM SUPPLY");
         _mint(to, amount);
+        emit TokenMinted(to, amount);
     }
 
     function disableMinting() public onlyGovernance {
