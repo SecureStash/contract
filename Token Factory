@@ -63,7 +63,7 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         require(msg.value == creationFee, "Incorrect Fees");
         require(buyFeePercent <= 10 && sellFeePercent <= 10, "Buy / Sell fee percent must not exceed 10%");
         require(burnFeePercent <= buyFeePercent && burnFeePercent <= sellFeePercent, "Burn fee must not exceed buy / sell fee percent");
-        //require(treasury != address(0), "Treasury address cannot be zero");   //Removed due to file size restrictions
+        require(treasury != address(0), "Treasury address cannot be zero");
         // Send the creation fee to the fee recipient
         feeRecipient.transfer(msg.value);
 
