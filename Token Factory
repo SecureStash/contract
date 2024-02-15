@@ -53,7 +53,7 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         require(buyFeePercent <= 10, "Buy fee percent must not exceed 10%");
         require(sellFeePercent <= 10, "Sell fee percent must not exceed 10%");
         require(buyBurnFeePercent <= buyFeePercent, "Buy burn fee must not exceed buy fee percent");
-    require(sellBurnFeePercent <= sellFeePercent, "Sell burn fee must not exceed sell fee percent");
+        require(sellBurnFeePercent <= sellFeePercent, "Sell burn fee must not exceed sell fee percent");
         require(treasury != address(0), "Treasury address cannot be zero");
         // Send the creation fee to the fee recipient
         feeRecipient.transfer(msg.value);
@@ -76,11 +76,11 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         emit TokenCreated(_msgSender(), address(mintToken), name, symbol, decimals, supplyWithDecimals);
     }
 
-    function setCreationFee(uint256 newFee) external onlyOwner {
+    function updateCreationFee(uint256 newFee) external onlyOwner {
         creationFee = newFee;
     }
 
-    function setFeeRecipient(address payable newRecipient) external onlyOwner {
+    function updateFeeRecipient(address payable newRecipient) external onlyOwner {
         require(newRecipient != address(0), "New recipient cannot be the zero address");
         feeRecipient = newRecipient;
     }
