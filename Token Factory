@@ -40,7 +40,7 @@ contract TokenFactory is Ownable, ReentrancyGuard {
     );
     
     constructor(uint256 _creationFee, address payable _feeRecipient, address _governanceContract) {
-        require(_feeRecipient != address(0), "Fee recipient cannot be the zero address");
+        require(_feeRecipient != address(0), "INVALID_RECIPIENT");
         creationFee = _creationFee;
         feeRecipient = _feeRecipient;
         governanceContract = _governanceContract;
@@ -57,15 +57,14 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         string memory symbol,
         uint256 maximumSupply,
         uint8 decimals,
-        uint256 buyFeePercent,
-        uint256 sellFeePercent,
-        uint256 burnFeePercent,
+        uint256 buyTax,
+        uint256 sellTax,
+        uint256 burnTax,
         address treasury
         ) public payable nonReentrant {
-        require(msg.value == creationFee, "Incorrect Fees");
-        require(buyFeePercent <= 10 && sellFeePercent <= 10, "Buy / Sell fee percent must not exceed 10%");
-        require(burnFeePercent <= buyFeePercent && burnFeePercent <= sellFeePercent, "Burn fee must not exceed buy / sell fee percent");
-        require(treasury != address(0), "Treasury address cannot be zero");
+        require(msg.value == creationFee, "INCORRECT_FEES");
+        require(buyTax <= 10 && sellTax <= 10 && burnTax <= 10, "TAX SHOULD BE <= 10%");
+        require(treasury != address(0), "INVALID_RECIPIENT");
         feeRecipient.transfer(msg.value);
 
         uint256 supplyWithDecimals = maximumSupply * (10 ** uint256(decimals));
@@ -75,9 +74,9 @@ contract TokenFactory is Ownable, ReentrancyGuard {
             supplyWithDecimals,
             _msgSender(),
             decimals,
-            buyFeePercent,
-            sellFeePercent,
-            burnFeePercent,
+            buyTax,
+            sellTax,
+            burnTax,
             treasury,
             governanceContract
         );
@@ -91,12 +90,12 @@ contract TokenFactory is Ownable, ReentrancyGuard {
     }
 
     function updateFeeRecipient(address payable newRecipient) external onlyGovernance {
-        require(newRecipient != address(0), "New recipient cannot be the zero address");
+        require(newRecipient != address(0), "INVALID_RECIPIENT");
         feeRecipient = newRecipient;
     }
 
     function updateGovContract(address newContract) external onlyGovernance {
-        require(newContract != address(0), "New contract cannot be the zero address");
+        require(newContract != address(0), "INVALID_RECIPIENT");
         governanceContract = newContract;
     }
 
@@ -118,19 +117,20 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     address public lockedTokenContract;
     address public vestedTokenContract;
     address public stakingTokenContract;
-    uint256 public buyFeePercent;
-    uint256 public sellFeePercent;
+    uint256 public buyTax;
+    uint256 public sellTax;
     address public treasury;
-    uint256 public burnFeePercent;
+    uint256 public burnTax;
     address public governanceContract;
     error UnauthorizedCaller();
     
     event MintingDisabled();
     event TreasuryUpdate(address indexed newTreasury);
-    event BuyFeeUpdated(uint256 newFeePercent);
-    event SellFeeUpdated(uint256 newFeePercent);
-    event BuyFeeTransferred(address indexed from, address indexed to, uint256 feeAmount);
-    event SellFeeTransferred(address indexed from, address indexed to, uint256 feeAmount);
+    event BuyTaxUpdated(uint256 _newTaxPercent);
+    event SellTaxUpdated(uint256 _newTaxPercent);
+    event BurnTaxUpdated(uint256 _newTaxPercent);
+    event BuyTaxTransferred(address indexed from, address indexed to, uint256 taxAmount);
+    event SellTaxTransferred(address indexed from, address indexed to, uint256 taxAmount);
 
     mapping(address => bool) public isLiquidityPool;
 
@@ -140,23 +140,22 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
         uint256 maxSupply,
         address tokenOwner,
         uint8 Decimals,
-        uint256 _buyFeePercent,
-        uint256 _sellFeePercent,
-        uint256 _burnFeePercent,
+        uint256 _buyTax,
+        uint256 _sellTax,
+        uint256 _burnTax,
         address _treasury,
         address _governanceContract
     ) ERC20(name, symbol) {
-        require(tokenOwner != address(0), "Token owner cannot be the zero address");
-        require(_treasury != address(0), "Treasury address cannot be zero");
-        require(_buyFeePercent <= 10 && _sellFeePercent <= 10, "Buy / Sell fee percent must not exceed 10%");
-        require(_burnFeePercent <= _buyFeePercent && _burnFeePercent <= _sellFeePercent, "Burn fee must not exceed buy / sell fee percent");
+        require(tokenOwner != address(0), "INVALID_RECIPIENT");
+        require(_treasury != address(0), "INVALID_RECIPIENT");
+        require(_buyTax <= 10 && _sellTax <= 10 && _burnTax <= 10, "TAX SHOULD BE <= 10%");
         
         _customDecimals = Decimals;
         _maximumSupply = maxSupply;
         _mint(tokenOwner, maxSupply);
-        buyFeePercent = _buyFeePercent;
-        sellFeePercent = _sellFeePercent;
-        burnFeePercent = _burnFeePercent;
+        buyTax = _buyTax;
+        sellTax = _sellTax;
+        burnTax = _burnTax;
         governanceContract = _governanceContract;
     }
 
@@ -167,8 +166,8 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     }
 
     function mint(address to, uint256 amount) public onlyGovernance nonReentrant {
-        require(_mintingEnabled, "Minting has been disabled");
-        require(totalSupply() + amount <= _maximumSupply, "Cannot exceed Maximum Supply");
+        require(_mintingEnabled, "MINTING_DISABLED");
+        require(totalSupply() + amount <= _maximumSupply, "CANNOT EXCEED MAXIMUM SUPPLY");
         _mint(to, amount);
     }
 
@@ -189,20 +188,26 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
         stakingTokenContract = _stakingTokenContract;
     }
     
-    function updateBuyFeePercent(uint256 newFeePercent) external onlyGovernance {
-        require(newFeePercent <= 20, "Fee cannot exceed 20%");
-        buyFeePercent = newFeePercent;
-        emit BuyFeeUpdated(newFeePercent);
+    function updateBuyTax(uint256 _newTaxPercent) external onlyGovernance {
+        require(_newTaxPercent <= 20, "NEW TAX SHOULD BE <= 20%");
+        buyTax = _newTaxPercent;
+        emit BuyTaxUpdated(_newTaxPercent);
     }
 
-    function updateSellFeePercent(uint256 newFeePercent) external onlyGovernance {
-        require(newFeePercent <= 20, "Fee cannot exceed 20%");
-        sellFeePercent = newFeePercent;
-        emit SellFeeUpdated(newFeePercent);
+    function updateSellTax(uint256 _newTaxPercent) external onlyGovernance {
+        require(_newTaxPercent <= 20, "NEW TAX SHOULD BE <= 20%");
+        sellTax = _newTaxPercent;
+        emit SellTaxUpdated(_newTaxPercent);
+    }
+
+    function updateBurnTax(uint256 _newTaxPercent) external onlyGovernance {
+        require(_newTaxPercent <= 20, "NEW TAX SHOULD BE <= 20%");
+        burnTax = _newTaxPercent;
+        emit BurnTaxUpdated(_newTaxPercent);
     }
 
     function updateTreasury(address _treasury) public onlyGovernance {
-        require(_treasury != address(0), "Treasury address cannot be zero");
+        require(_treasury != address(0), "INVALID_RECIPIENT");
         treasury = _treasury;
         emit TreasuryUpdate(_treasury);
     }
@@ -213,35 +218,35 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
         address to,
         uint256 amount
     ) internal override {
-        uint256 feeAmount = 0;
+        uint256 taxAmount = 0;
         uint256 burnAmount = 0;
         
     // Check and apply buy fee and/or burn fee
         if (_isBuying(from)) {
-            if (buyFeePercent > 0) {
-                feeAmount = (amount * (buyFeePercent - burnFeePercent)) / 100;
-                super._transfer(from, treasury, feeAmount);
+            if (buyTax > 0) {
+                taxAmount = (amount * buyTax) / 100;
+                super._transfer(from, treasury, taxAmount);
             }
-            if (burnFeePercent > 0) {
-            burnAmount = (amount * burnFeePercent) / 100;
+            if (burnTax > 0) {
+            burnAmount = (amount * burnTax) / 100;
             _burn(from, burnAmount);
             }
-            emit BuyFeeTransferred(from, treasury, feeAmount);
-            amount -= (feeAmount + burnAmount);
+            emit BuyTaxTransferred(from, treasury, taxAmount);
+            amount -= (taxAmount + burnAmount);
         }
         
     // Check and apply sell fee and/or burn fee
         if (_isSelling(to)) {
-            if (sellFeePercent > 0) {
-            feeAmount = (amount * (sellFeePercent - burnFeePercent)) / 100;
-            super._transfer(from, treasury, feeAmount);
+            if (sellTax > 0) {
+            taxAmount = (amount * sellTax) / 100;
+            super._transfer(from, treasury, taxAmount);
             }
-        if (burnFeePercent > 0) {
-            burnAmount = (amount * burnFeePercent) / 100;
+        if (burnTax > 0) {
+            burnAmount = (amount * burnTax) / 100;
             _burn(from, burnAmount);
         }
-            emit SellFeeTransferred(from, treasury, feeAmount);
-            amount -= (feeAmount + burnAmount);
+            emit SellTaxTransferred(from, treasury, taxAmount);
+            amount -= (taxAmount + burnAmount);
         }
 
         super._transfer(from, to, amount);
