@@ -52,6 +52,20 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         _;
     }
 
+    function updateCreationFee(uint256 newFee) external onlyGovernance {
+        creationFee = newFee;
+    }
+
+    function updateFeeRecipient(address payable newRecipient) external onlyGovernance {
+        require(newRecipient != address(0), "INVALID_RECIPIENT");
+        feeRecipient = newRecipient;
+    }
+
+    function updateGovContract(address newContract) external onlyGovernance {
+        require(newContract != address(0), "INVALID_RECIPIENT");
+        governanceContract = newContract;
+    }
+
     function createToken(
         string memory name,
         string memory symbol,
@@ -85,26 +99,12 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         emit TokenCreated(_msgSender(), address(mintToken), name, symbol, decimals, supplyWithDecimals);
     }
 
-    function updateCreationFee(uint256 newFee) external onlyGovernance {
-        creationFee = newFee;
-    }
-
-    function updateFeeRecipient(address payable newRecipient) external onlyGovernance {
-        require(newRecipient != address(0), "INVALID_RECIPIENT");
-        feeRecipient = newRecipient;
-    }
-
-    function updateGovContract(address newContract) external onlyGovernance {
-        require(newContract != address(0), "INVALID_RECIPIENT");
-        governanceContract = newContract;
+    function renounceOwnership() public override onlyOwner {
+        super.renounceOwnership();
     }
 
     function getTokensCreatedBy(address creator) public view returns (address[] memory) {
         return tokensCreatedBy[creator];
-    }
-
-    function renounceOwnership() public override onlyOwner {
-        super.renounceOwnership();
     }
 
 }
@@ -122,6 +122,7 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     address public treasury;
     uint256 public burnTax;
     address public governanceContract;
+    
     error UnauthorizedCaller();
     
     event MintingDisabled();
@@ -165,42 +166,31 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
         _;
     }
 
-    function mint(address to, uint256 amount) public onlyGovernance nonReentrant {
-        require(_mintingEnabled, "MINTING_DISABLED");
-        require(totalSupply() + amount <= _maximumSupply, "CANNOT EXCEED MAXIMUM SUPPLY");
-        _mint(to, amount);
-    }
-
-    function disableMinting() public onlyGovernance {
-        _mintingEnabled = false;
-        emit MintingDisabled();
-    }
-
-    function setLockedTokenContract(address _lockedTokenContract) external onlyOwner {
+    function setLockedTokenContract(address _lockedTokenContract) public onlyOwner {
         lockedTokenContract = _lockedTokenContract;
     }
 
-    function setVestedTokenContract(address _vestedTokenContract) external onlyOwner {
+    function setVestedTokenContract(address _vestedTokenContract) public onlyOwner {
         vestedTokenContract = _vestedTokenContract;
     }
 
-    function setStakingTokenContract(address _stakingTokenContract) external onlyOwner {
+    function setStakingTokenContract(address _stakingTokenContract) public onlyOwner {
         stakingTokenContract = _stakingTokenContract;
     }
     
-    function updateBuyTax(uint256 _newTaxPercent) external onlyGovernance {
+    function updateBuyTax(uint256 _newTaxPercent) public onlyGovernance {
         require(_newTaxPercent <= 20, "NEW TAX SHOULD BE <= 20%");
         buyTax = _newTaxPercent;
         emit BuyTaxUpdated(_newTaxPercent);
     }
 
-    function updateSellTax(uint256 _newTaxPercent) external onlyGovernance {
+    function updateSellTax(uint256 _newTaxPercent) public onlyGovernance {
         require(_newTaxPercent <= 20, "NEW TAX SHOULD BE <= 20%");
         sellTax = _newTaxPercent;
         emit SellTaxUpdated(_newTaxPercent);
     }
 
-    function updateBurnTax(uint256 _newTaxPercent) external onlyGovernance {
+    function updateBurnTax(uint256 _newTaxPercent) public onlyGovernance {
         require(_newTaxPercent <= 20, "NEW TAX SHOULD BE <= 20%");
         burnTax = _newTaxPercent;
         emit BurnTaxUpdated(_newTaxPercent);
@@ -210,6 +200,25 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
         require(_treasury != address(0), "INVALID_RECIPIENT");
         treasury = _treasury;
         emit TreasuryUpdate(_treasury);
+    }
+
+    function addLiquidityPool(address _pool) public onlyGovernance {
+        isLiquidityPool[_pool] = true;
+    }
+
+    function removeLiquidityPool(address _pool) public onlyGovernance {
+        isLiquidityPool[_pool] = false;
+    }
+    
+    function mint(address to, uint256 amount) public onlyGovernance nonReentrant {
+        require(_mintingEnabled, "MINTING_DISABLED");
+        require(totalSupply() + amount <= _maximumSupply, "CANNOT EXCEED MAXIMUM SUPPLY");
+        _mint(to, amount);
+    }
+
+    function disableMinting() public onlyGovernance {
+        _mintingEnabled = false;
+        emit MintingDisabled();
     }
 
     // Override the _transfer function to include fee logic
@@ -251,23 +260,10 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
 
         super._transfer(from, to, amount);
     }
-    
-    function addLiquidityPool(address _pool) external onlyGovernance {
-        isLiquidityPool[_pool] = true;
-    }
 
-    function removeLiquidityPool(address _pool) external onlyGovernance {
-        isLiquidityPool[_pool] = false;
+    function renounceOwnership() public override onlyOwner {
+        super.renounceOwnership();
     }
-
-    function _isBuying(address from) private view returns (bool) {
-        return isLiquidityPool[from];
-    }
-
-    function _isSelling(address to) private view returns (bool) {
-        return isLiquidityPool[to];
-    }
-
     
     function maximumSupply() public view returns (uint256) {
         return _maximumSupply;
@@ -301,7 +297,12 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
         return _mintingEnabled;
     }
 
-    function renounceOwnership() public override onlyOwner {
-        super.renounceOwnership();
+    function _isBuying(address from) private view returns (bool) {
+        return isLiquidityPool[from];
     }
+
+    function _isSelling(address to) private view returns (bool) {
+        return isLiquidityPool[to];
+    }
+    
 }
