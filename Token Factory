@@ -16,6 +16,8 @@ interface IStakingTokenContract {
 interface ITokenFactory {
     function updateCreationFee(uint256 newFee) external;
     function updateFeeRecipient(address payable newRecipient) external;
+    function getGovernanceContract() external view returns (address);
+    //function isCreationAuthorized(address _tokenAddress) external returns (bool);
 }
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -26,7 +28,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 contract TokenFactory is Ownable, ReentrancyGuard {
     uint256 public creationFee;
     address payable public feeRecipient;
-    address public governanceContract;
+    address private governanceContract;
     mapping(address => address[]) public tokensCreatedBy;
     error UnauthorizedCaller();
 
@@ -39,6 +41,9 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         uint256 totalSupply
     );
     
+    // Mapping to authenticate token creation requests
+    //mapping(address => bool) private authorizedCreations;
+
     constructor(uint256 _creationFee, address payable _feeRecipient, address _governanceContract) {
         require(_feeRecipient != address(0), "INVALID_RECIPIENT");
         creationFee = _creationFee;
@@ -47,10 +52,15 @@ contract TokenFactory is Ownable, ReentrancyGuard {
     }
 
     modifier onlyGovernance() {
-        //require(_msgSender() == governanceContract, "Caller is not the governance contract");
         if (_msgSender() != governanceContract) revert UnauthorizedCaller();
         _;
     }
+/*
+    function isCreationAuthorized(address _tokenAddress) public returns (bool) {
+        bool authorized = authorizedCreations[_tokenAddress];
+        delete authorizedCreations[_tokenAddress]; // Immediately revoke authorization to prevent reuse
+        return authorized;
+    }*/
 
     function updateCreationFee(uint256 _newFee) public onlyGovernance {
         creationFee = _newFee;
@@ -64,6 +74,10 @@ contract TokenFactory is Ownable, ReentrancyGuard {
     function updateGovContract(address _newContract) public onlyGovernance {
         require(_newContract != address(0), "INVALID_RECIPIENT");
         governanceContract = _newContract;
+    }
+
+    function getGovernanceContract() external view returns (address) {
+        return governanceContract;
     }
 
     function createToken(
@@ -92,8 +106,9 @@ contract TokenFactory is Ownable, ReentrancyGuard {
             sellTax,
             burnTax,
             treasury,
-            governanceContract
+            address(this)
         );
+        //authorizedCreations[address(mintToken)] = true;
         mintToken.transferOwnership(_msgSender());
         tokensCreatedBy[_msgSender()].push(address(mintToken));
         emit TokenCreated(_msgSender(), address(mintToken), name, symbol, decimals, supplyWithDecimals);
@@ -111,17 +126,18 @@ contract TokenFactory is Ownable, ReentrancyGuard {
 
 // NewToken extends the ERC20 implementation from OpenZeppelin and adds a burn function.
 contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
+
     uint256 private _maximumSupply;
     uint8 private _customDecimals;
     bool private _mintingEnabled = true; // Minting is enabled by default
-    address public lockedTokenContract;
-    address public vestedTokenContract;
-    address public stakingTokenContract;
+    address[] public lockedTokenContracts;
+    address[] public vestedTokenContracts;
+    address[] public stakingTokenContracts;
     uint256 public buyTax;
     uint256 public sellTax;
     address public treasury;
     uint256 public burnTax;
-    address public governanceContract;
+    address public tokenFactoryAddress;
     
     error UnauthorizedCaller();
     
@@ -132,9 +148,12 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     event BurnTaxUpdated(uint256 _newTaxPercent);
     event BuyTaxTransferred(address indexed from, address indexed to, uint256 taxAmount);
     event SellTaxTransferred(address indexed from, address indexed to, uint256 taxAmount);
-    event LockedTokenContractUpdated(address indexed newLockedTokenContract);
-    event VestedTokenContractUpdated(address indexed newVestedTokenContract);
-    event StakingTokenContractUpdated(address indexed newStakingTokenContract);
+    event LockedTokenContractAdded(address indexed newContract);
+    event LockedTokenContractRemoved(address indexed removedContract);
+    event VestedTokenContractAdded(address indexed newContract);
+    event VestedTokenContractRemoved(address indexed removedContract);
+    event StakingTokenContractAdded(address indexed newContract);
+    event StakingTokenContractRemoved(address indexed removedContract);
     event TokenMinted(address indexed to, uint256 amount);
     event LiquidityPoolAdded(address indexed pool);
     event LiquidityPoolRemoved(address indexed pool);
@@ -151,40 +170,96 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
         uint256 _sellTax,
         uint256 _burnTax,
         address _treasury,
-        address _governanceContract
+        address _tokenFactoryAddress
     ) ERC20(name, symbol) {
+        //require(ITokenFactory(_tokenFactoryAddress).isCreationAuthorized(address(this)), "Unauthorized creation");
         require(tokenOwner != address(0), "INVALID_RECIPIENT");
         require(_treasury != address(0), "INVALID_RECIPIENT");
         require(_buyTax <= 10 && _sellTax <= 10 && _burnTax <= 10, "TAX SHOULD BE <= 10%");
         
+        tokenFactoryAddress = _tokenFactoryAddress;
+        treasury = _treasury;
         _customDecimals = Decimals;
         _maximumSupply = maxSupply;
         _mint(tokenOwner, maxSupply);
         buyTax = _buyTax;
         sellTax = _sellTax;
         burnTax = _burnTax;
-        governanceContract = _governanceContract;
     }
 
     modifier onlyGovernance() {
-        //require(_msgSender() == governanceContract, "Caller is not the governance contract");
+        address governanceContract = ITokenFactory(tokenFactoryAddress).getGovernanceContract();
         if (_msgSender() != governanceContract) revert UnauthorizedCaller();
         _;
     }
 
-    function setLockedTokenContract(address _lockedTokenContract) public onlyOwner {
-        lockedTokenContract = _lockedTokenContract;
-        emit LockedTokenContractUpdated(_lockedTokenContract);
+    function addLockedTokenContract(address _address) public onlyOwner {
+        require(_address != address(0), "INVALID_ADDRESS");
+        for (uint i = 0; i < lockedTokenContracts.length; i++) {
+            require(lockedTokenContracts[i] != _address, "ADDRESS_ALREADY_ADDED");
+        }
+        lockedTokenContracts.push(_address);
+        emit LockedTokenContractAdded(_address);
     }
 
-    function setVestedTokenContract(address _vestedTokenContract) public onlyOwner {
-        vestedTokenContract = _vestedTokenContract;
-        emit VestedTokenContractUpdated(_vestedTokenContract);
+    // Function to remove a locked token contract address
+    function removeLockedTokenContract(address _address) public onlyGovernance {
+        int index = _findIndex(lockedTokenContracts, _address);
+        require(index != -1, "ADDRESS_NOT_FOUND");
+        _removeAtIndex(lockedTokenContracts, uint(index));
+        emit LockedTokenContractRemoved(_address);
     }
 
-    function setStakingTokenContract(address _stakingTokenContract) public onlyOwner {
-        stakingTokenContract = _stakingTokenContract;
-        emit StakingTokenContractUpdated(_stakingTokenContract);
+    function addVestedTokenContract(address _address) public onlyOwner {
+        require(_address != address(0), "INVALID_ADDRESS");
+        for (uint i = 0; i < vestedTokenContracts.length; i++) {
+            require(vestedTokenContracts[i] != _address, "ADDRESS_ALREADY_ADDED");
+        }
+        vestedTokenContracts.push(_address);
+        emit VestedTokenContractAdded(_address);
+    }
+
+    // Remove a vested token contract address
+    function removeVestedTokenContract(address _address) public onlyGovernance {
+        int index = _findIndex(vestedTokenContracts, _address);
+        require(index != -1, "ADDRESS_NOT_FOUND");
+        _removeAtIndex(vestedTokenContracts, uint(index));
+        emit VestedTokenContractRemoved(_address);
+    }
+
+    // Add a staking token contract address
+    function addStakingTokenContract(address _address) public onlyOwner {
+        require(_address != address(0), "INVALID_ADDRESS");
+        for (uint i = 0; i < stakingTokenContracts.length; i++) {
+            require(stakingTokenContracts[i] != _address, "ADDRESS_ALREADY_ADDED");
+        }
+        stakingTokenContracts.push(_address);
+        emit StakingTokenContractAdded(_address);
+    }
+
+    // Remove a staking token contract address
+    function removeStakingTokenContract(address _address) public onlyGovernance {
+        int index = _findIndex(stakingTokenContracts, _address);
+        require(index != -1, "ADDRESS_NOT_FOUND");
+        _removeAtIndex(stakingTokenContracts, uint(index));
+        emit StakingTokenContractRemoved(_address);
+    }
+
+    // Helper function to find index of an address in an array
+    function _findIndex(address[] storage array, address _address) private view returns (int) {
+        for (uint i = 0; i < array.length; i++) {
+            if (array[i] == _address) {
+                return int(i);
+            }
+        }
+        return -1; // Not found
+    }
+
+    // Helper function to remove an address at a specific index in an array
+    function _removeAtIndex(address[] storage array, uint index) private {
+        require(index < array.length, "INDEX_OUT_OF_BOUNDS");
+        array[index] = array[array.length - 1];
+        array.pop();
     }
     
     function updateBuyTax(uint256 _newTaxPercent) public onlyGovernance {
@@ -211,7 +286,7 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
         emit TreasuryUpdate(_treasury);
     }
 
-    function addLiquidityPool(address _pool) public onlyGovernance {
+    function addLiquidityPool(address _pool) public onlyOwner {
         isLiquidityPool[_pool] = true;
         emit LiquidityPoolAdded(_pool);
     }
@@ -282,23 +357,27 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     }
 
     function circulatingSupply() public view returns (uint256) {
-        uint256 lockedBalance = 0;
-        uint256 vestedBalance = 0;
-        uint256 stakingBalance = 0;
-
-        if (lockedTokenContract != address(0)) {
-            lockedBalance = ILockedTokenContract(lockedTokenContract).balanceOf(address(this));
+        uint256 lockedBalanceTotal = 0;
+        for (uint i = 0; i < lockedTokenContracts.length; i++) {
+            lockedBalanceTotal += ILockedTokenContract(lockedTokenContracts[i]).balanceOf(address(this));
         }
 
-        if (vestedTokenContract != address(0)) {
-            vestedBalance = IVestedTokenContract(vestedTokenContract).balanceOf(address(this));
+        uint256 vestedBalanceTotal = 0;
+        for (uint i = 0; i < vestedTokenContracts.length; i++) {
+            vestedBalanceTotal += IVestedTokenContract(vestedTokenContracts[i]).balanceOf(address(this));
         }
 
-        if (stakingTokenContract != address(0)) {
-            stakingBalance = IStakingTokenContract(stakingTokenContract).balanceOf(address(this));
+        uint256 stakingBalanceTotal = 0;
+        for (uint i = 0; i < stakingTokenContracts.length; i++) {
+            stakingBalanceTotal += IStakingTokenContract(stakingTokenContracts[i]).balanceOf(address(this));
         }
 
-        return totalSupply() - (lockedBalance + vestedBalance + stakingBalance);
+        // Subtracting the total of locked, vested, and staking balances from the total supply
+        return totalSupply() - (lockedBalanceTotal + vestedBalanceTotal + stakingBalanceTotal);
+    }
+
+    function getGovernanceContractAddress() public view returns (address) {
+        return ITokenFactory(tokenFactoryAddress).getGovernanceContract();
     }
 
     function decimals() public view virtual override returns (uint8) {
