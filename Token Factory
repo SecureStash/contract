@@ -17,7 +17,6 @@ interface ITokenFactory {
     function updateCreationFee(uint256 newFee) external;
     function updateFeeRecipient(address payable newRecipient) external;
     function getGovernanceContract() external view returns (address);
-    //function isCreationAuthorized(address _tokenAddress) external returns (bool);
 }
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -41,9 +40,6 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         uint256 totalSupply
     );
     
-    // Mapping to authenticate token creation requests
-    //mapping(address => bool) private authorizedCreations;
-
     constructor(uint256 _creationFee, address payable _feeRecipient, address _governanceContract) {
         require(_feeRecipient != address(0), "INVALID_RECIPIENT");
         creationFee = _creationFee;
@@ -55,12 +51,6 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         if (_msgSender() != governanceContract) revert UnauthorizedCaller();
         _;
     }
-/*
-    function isCreationAuthorized(address _tokenAddress) public returns (bool) {
-        bool authorized = authorizedCreations[_tokenAddress];
-        delete authorizedCreations[_tokenAddress]; // Immediately revoke authorization to prevent reuse
-        return authorized;
-    }*/
 
     function updateCreationFee(uint256 _newFee) public onlyGovernance {
         creationFee = _newFee;
@@ -92,7 +82,7 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         ) public payable nonReentrant {
         require(msg.value == creationFee, "INCORRECT_FEES");
         require(buyTax <= 10 && sellTax <= 10 && burnTax <= 10, "TAX SHOULD BE <= 10%");
-        require(treasury != address(0), "INVALID_RECIPIENT");
+        require(treasury != address(0), "INVALID_TREASURY");
         feeRecipient.transfer(msg.value);
 
         uint256 supplyWithDecimals = maximumSupply * (10 ** uint256(decimals));
@@ -108,7 +98,6 @@ contract TokenFactory is Ownable, ReentrancyGuard {
             treasury,
             address(this)
         );
-        //authorizedCreations[address(mintToken)] = true;
         mintToken.transferOwnership(_msgSender());
         tokensCreatedBy[_msgSender()].push(address(mintToken));
         emit TokenCreated(_msgSender(), address(mintToken), name, symbol, decimals, supplyWithDecimals);
@@ -172,9 +161,8 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
         address _treasury,
         address _tokenFactoryAddress
     ) ERC20(name, symbol) {
-        //require(ITokenFactory(_tokenFactoryAddress).isCreationAuthorized(address(this)), "Unauthorized creation");
-        require(tokenOwner != address(0), "INVALID_RECIPIENT");
-        require(_treasury != address(0), "INVALID_RECIPIENT");
+        require(tokenOwner != address(0), "INVALID_OWNER");
+        require(_treasury != address(0), "INVALID_TREASURY");
         require(_buyTax <= 10 && _sellTax <= 10 && _burnTax <= 10, "TAX SHOULD BE <= 10%");
         
         tokenFactoryAddress = _tokenFactoryAddress;
@@ -281,7 +269,7 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     }
 
     function updateTreasury(address _treasury) public onlyGovernance {
-        require(_treasury != address(0), "INVALID_RECIPIENT");
+        require(_treasury != address(0), "INVALID_TREASURY");
         treasury = _treasury;
         emit TreasuryUpdate(_treasury);
     }
