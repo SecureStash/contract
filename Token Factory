@@ -90,11 +90,11 @@ contract TokenFactory is Ownable, ReentrancyGuard {
             name,
             symbol,
             supplyWithDecimals,
-            _msgSender(),
             decimals,
             buyTax,
             sellTax,
             burnTax,
+            _msgSender(),
             treasury,
             address(this)
         );
@@ -153,11 +153,11 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
         string memory name,
         string memory symbol,
         uint256 maxSupply,
-        address tokenOwner,
         uint8 Decimals,
         uint256 _buyTax,
         uint256 _sellTax,
         uint256 _burnTax,
+        address tokenOwner,
         address _treasury,
         address _tokenFactoryAddress
     ) ERC20(name, symbol) {
