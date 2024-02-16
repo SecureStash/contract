@@ -126,7 +126,7 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     uint256 public sellTax;
     address public treasury;
     uint256 public burnTax;
-    address public tokenFactoryAddress;
+    address private tokenFactoryAddress;
     
     error UnauthorizedCaller();
     
