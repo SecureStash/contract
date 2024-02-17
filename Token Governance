@@ -12,6 +12,9 @@ interface INewToken {
     function removeVestedTokenContract(address _address) external;
     function removeStakingTokenContract(address _address) external;
     function removeLiquidityPool(address _pool) external;
+    function modifyBuyTax(uint256 _newTax) external;
+    function modifySellTax(uint256 _newTax) external;
+    function modifyBurnTax(uint256 _newTax) external;
 }
 
 interface IERC20 {
@@ -28,6 +31,7 @@ contract Governance {
     
     enum ProposalType { UpdateCreationFee, UpdateFeeRecipient, UpdateGovernanceContract, UpdateTokenFactoryAddress }
     enum ProposalType2 { RemoveLockedTokenContract, RemoveVestedTokenContract, RemoveStakingTokenContract, RemoveLiquidityPool }
+    enum TaxProposalType { UpdateBuyTax, UpdateSellTax, UpdateBurnTax }
 
     struct Proposal {
         uint256 id;
@@ -55,9 +59,22 @@ contract Governance {
         mapping(address => bool) voted;
     }
 
+    struct ModifyTax {
+        uint256 id;
+        TaxProposalType proposalType;
+        uint256 newBuyTax;
+        uint256 newSellTax;
+        uint256 newBurnTax;
+        uint256 voteCountYes;
+        uint256 voteCountNo;
+        bool executed;
+        mapping(address => bool) voted;
+    }
+
     uint256 public nextProposalId;
     mapping(uint256 => Proposal) public proposals;
     mapping(uint256 => Proposal2) public proposal2s;
+    mapping(uint256 => ModifyTax) public modifyTax;
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Not owner");
@@ -77,7 +94,7 @@ contract Governance {
         votingTokenSet = true;
     }
 
-    function createProposal(ProposalType _type, uint256 _newFee, address _newAddress) public onlyOwner {
+    function createFactoryProposal(ProposalType _type, uint256 _newFee, address _newAddress) public onlyOwner {
         Proposal storage p = proposals[nextProposalId];
         p.id = nextProposalId;
         p.proposalType = _type;
@@ -96,7 +113,7 @@ contract Governance {
         nextProposalId++;
     }
     
-    function removeProposal(ProposalType2 _type, address _contractAddress) public onlyOwner {
+    function removeContractProposal(ProposalType2 _type, address _contractAddress) public onlyOwner {
         Proposal2 storage p2 = proposal2s[nextProposalId];
         p2.id = nextProposalId;
         p2.proposalType = _type;
@@ -112,6 +129,23 @@ contract Governance {
     }
     
         p2.executed = false;
+        nextProposalId++;
+    }
+
+    function modifyTaxProposal(TaxProposalType _type, uint256 _newTax) public {
+        ModifyTax storage t = modifyTax[nextProposalId];
+        t.id = nextProposalId;
+        t.proposalType = _type;
+
+    if (_type == TaxProposalType.UpdateBuyTax) {
+        t.newBuyTax = _newTax;
+    } else if (_type == TaxProposalType.UpdateSellTax) {
+        t.newSellTax = _newTax;
+    } else if (_type == TaxProposalType.UpdateBurnTax) {
+        t.newBurnTax = _newTax;
+    }
+    
+        t.executed = false;
         nextProposalId++;
     }
 
@@ -131,7 +165,7 @@ contract Governance {
         }
     }
     
-    function executeProposal(uint256 _proposalId) public {
+    function executeFactoryProposal(uint256 _proposalId) public {
         Proposal storage p = proposals[_proposalId];
         require(!p.executed, "Proposal already executed");
         require(p.voteCountYes > p.voteCountNo, "Proposal did not pass");
@@ -151,7 +185,7 @@ contract Governance {
             p.executed = true;
         }
         
-        function executeProposal2 (uint256 _proposalId, address _contractAddress) public {
+        function executeRemoveContract (uint256 _proposalId, address _contractAddress) public {
             Proposal2 storage p2 = proposal2s[_proposalId];
             require(!p2.executed, "Proposal already executed");
             require(p2.voteCountYes > p2.voteCountNo, "Proposal did not pass");
@@ -170,4 +204,21 @@ contract Governance {
             }
         p2.executed = true;
     }
+
+    function executeTaxChange (uint256 _proposalId, address _contractAddress) public {
+            ModifyTax storage t = modifyTax[_proposalId];
+            require(!t.executed, "Proposal already executed");
+            require(t.voteCountYes > t.voteCountNo, "Proposal did not pass");
+            require(t.voteCountYes >= minimumQuorum, "Not enough votes");
+    
+        if (t.proposalType == TaxProposalType.UpdateBuyTax) {
+            INewToken(_contractAddress).modifyBuyTax(t.newBuyTax);
+            } else if (t.proposalType == TaxProposalType.UpdateSellTax) {
+                INewToken(_contractAddress).modifyBuyTax(t.newSellTax);
+            } else if (t.proposalType == TaxProposalType.UpdateBurnTax) {
+                INewToken(_contractAddress).modifyBuyTax(t.newBurnTax);
+            }
+        t.executed = true;
+    }
+
 }
