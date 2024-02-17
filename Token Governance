@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 interface ITokenFactory {
     function updateCreationFee(uint256 _newFee) external;
     function updateFeeRecipient(address payable _newRecipient) external;
+    function updateGovContract(address _newContract) external;
 }
 
 interface IERC20 {
@@ -18,7 +19,7 @@ contract Governance {
     uint256 public minimumQuorum;
     uint256 public debatingPeriodDuration;
     
-    enum ProposalType { UpdateCreationFee, UpdateFeeRecipient, UpdateTokenFactoryAddress }
+    enum ProposalType { UpdateCreationFee, UpdateFeeRecipient, UpdateGovernanceContract, UpdateTokenFactoryAddress }
 
     struct Proposal {
         uint256 id;
@@ -26,6 +27,7 @@ contract Governance {
         uint256 newFee;
         address newFeeRecipient;
         address newTokenFactoryAddress;
+        address newGovernanceContractAddress;
         uint256 voteCountYes;
         uint256 voteCountNo;
         bool executed;
@@ -62,6 +64,8 @@ contract Governance {
         p.newFee = _newFee;
     } else if (_type == ProposalType.UpdateFeeRecipient) {
         p.newFeeRecipient = _newAddress;
+    } else if (_type == ProposalType.UpdateGovernanceContract) {
+        p.newGovernanceContractAddress = _newAddress;
     } else if (_type == ProposalType.UpdateTokenFactoryAddress) {
         p.newTokenFactoryAddress = _newAddress;
     }
@@ -98,6 +102,9 @@ contract Governance {
         ITokenFactory(tokenFactoryAddress).updateCreationFee(p.newFee);
         } else if (p.proposalType == ProposalType.UpdateFeeRecipient) {
             ITokenFactory(tokenFactoryAddress).updateFeeRecipient(payable(p.newFeeRecipient));
+        } else if (p.proposalType == ProposalType.UpdateGovernanceContract) {
+            require(p.newGovernanceContractAddress != address(0), "Invalid address");    
+            ITokenFactory(tokenFactoryAddress).updateGovContract(p.newGovernanceContractAddress);
         } else if (p.proposalType == ProposalType.UpdateTokenFactoryAddress) {
             require(p.newTokenFactoryAddress != address(0), "Invalid address");
             tokenFactoryAddress = p.newTokenFactoryAddress;
