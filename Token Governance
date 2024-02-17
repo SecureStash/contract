@@ -7,6 +7,13 @@ interface ITokenFactory {
     function updateGovContract(address _newContract) external;
 }
 
+interface INewToken {
+    function removeLockedTokenContract(address _address) external;
+    function removeVestedTokenContract(address _address) external;
+    function removeStakingTokenContract(address _address) external;
+    function removeLiquidityPool(address _pool) external;
+}
+
 interface IERC20 {
     function balanceOf(address account) external view returns (uint256);
 }
@@ -20,6 +27,7 @@ contract Governance {
     uint256 public debatingPeriodDuration;
     
     enum ProposalType { UpdateCreationFee, UpdateFeeRecipient, UpdateGovernanceContract, UpdateTokenFactoryAddress }
+    enum ProposalType2 { RemoveLockedTokenContract, RemoveVestedTokenContract, RemoveStakingTokenContract, RemoveLiquidityPool }
 
     struct Proposal {
         uint256 id;
@@ -34,12 +42,26 @@ contract Governance {
         mapping(address => bool) voted;
     }
 
+    struct Proposal2 {
+        uint256 id;
+        ProposalType2 proposalType;
+        address removeLockedContract;
+        address removeVestedContract;
+        address removeStakedContract;
+        address removeLP;
+        uint256 voteCountYes;
+        uint256 voteCountNo;
+        bool executed;
+        mapping(address => bool) voted;
+    }
+
     uint256 public nextProposalId;
     mapping(uint256 => Proposal) public proposals;
+    mapping(uint256 => Proposal2) public proposal2s;
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Not owner");
-        _;
+        _; 
     }
 
     constructor(address _tokenFactoryAddress, uint256 _minimumQuorum, uint256 _debatingPeriodDuration) {
@@ -73,6 +95,25 @@ contract Governance {
         p.executed = false;
         nextProposalId++;
     }
+    
+    function removeProposal(ProposalType2 _type, address _contractAddress) public onlyOwner {
+        Proposal2 storage p2 = proposal2s[nextProposalId];
+        p2.id = nextProposalId;
+        p2.proposalType = _type;
+
+    if (_type == ProposalType2.RemoveLockedTokenContract) {
+        p2.removeLockedContract = _contractAddress;
+    } else if (_type == ProposalType2.RemoveVestedTokenContract) {
+        p2.removeVestedContract = _contractAddress;
+    } else if (_type == ProposalType2.RemoveStakingTokenContract) {
+        p2.removeStakedContract = _contractAddress;
+    } else if (_type == ProposalType2.RemoveLiquidityPool) {
+        p2.removeLP = _contractAddress;
+    }
+    
+        p2.executed = false;
+        nextProposalId++;
+    }
 
     function vote(uint256 _proposalId, bool _voteYes) public {
         require(votingTokenSet, "Voting token not set");
@@ -89,26 +130,44 @@ contract Governance {
             p.voteCountNo++;
         }
     }
-
-    function executeProposal(uint256 _proposalId) public {
-    Proposal storage p = proposals[_proposalId];
-    require(!p.executed, "Proposal already executed");
-    require(p.voteCountYes > p.voteCountNo, "Proposal did not pass");
-    require(p.voteCountYes >= minimumQuorum, "Not enough votes");
-
-    p.executed = true;
-
-    if (p.proposalType == ProposalType.UpdateCreationFee) {
-        ITokenFactory(tokenFactoryAddress).updateCreationFee(p.newFee);
-        } else if (p.proposalType == ProposalType.UpdateFeeRecipient) {
-            ITokenFactory(tokenFactoryAddress).updateFeeRecipient(payable(p.newFeeRecipient));
-        } else if (p.proposalType == ProposalType.UpdateGovernanceContract) {
-            require(p.newGovernanceContractAddress != address(0), "Invalid address");    
-            ITokenFactory(tokenFactoryAddress).updateGovContract(p.newGovernanceContractAddress);
-        } else if (p.proposalType == ProposalType.UpdateTokenFactoryAddress) {
-            require(p.newTokenFactoryAddress != address(0), "Invalid address");
-            tokenFactoryAddress = p.newTokenFactoryAddress;
-        }
-    }
     
+    function executeProposal(uint256 _proposalId) public {
+        Proposal storage p = proposals[_proposalId];
+        require(!p.executed, "Proposal already executed");
+        require(p.voteCountYes > p.voteCountNo, "Proposal did not pass");
+        require(p.voteCountYes >= minimumQuorum, "Not enough votes");
+
+        if (p.proposalType == ProposalType.UpdateCreationFee) {
+            ITokenFactory(tokenFactoryAddress).updateCreationFee(p.newFee);
+            } else if (p.proposalType == ProposalType.UpdateFeeRecipient) {
+                ITokenFactory(tokenFactoryAddress).updateFeeRecipient(payable(p.newFeeRecipient));
+            } else if (p.proposalType == ProposalType.UpdateGovernanceContract) {
+                require(p.newGovernanceContractAddress != address(0), "Invalid address");    
+                ITokenFactory(tokenFactoryAddress).updateGovContract(p.newGovernanceContractAddress);
+            } else if (p.proposalType == ProposalType.UpdateTokenFactoryAddress) {
+                require(p.newTokenFactoryAddress != address(0), "Invalid address");
+                tokenFactoryAddress = p.newTokenFactoryAddress;
+            } 
+            p.executed = true;
+        }
+        
+        function executeProposal2 (uint256 _proposalId, address _contractAddress) public {
+            Proposal2 storage p2 = proposal2s[_proposalId];
+            require(!p2.executed, "Proposal already executed");
+            require(p2.voteCountYes > p2.voteCountNo, "Proposal did not pass");
+            require(p2.voteCountYes >= minimumQuorum, "Not enough votes");
+    
+        if (p2.proposalType == ProposalType2.RemoveLockedTokenContract) {
+            INewToken(_contractAddress).removeLockedTokenContract(p2.removeLockedContract);
+            } else if (p2.proposalType == ProposalType2.RemoveVestedTokenContract) {
+                //require(p.newGovernanceContractAddress != address(0), "Invalid address");    
+                INewToken(_contractAddress).removeVestedTokenContract(p2.removeVestedContract);
+            } else if (p2.proposalType == ProposalType2.RemoveStakingTokenContract) {
+                INewToken(_contractAddress).removeStakingTokenContract(p2.removeStakedContract);
+            } else if (p2.proposalType == ProposalType2.RemoveLiquidityPool) {
+                //require(p.newGovernanceContractAddress != address(0), "Invalid address");    
+                INewToken(_contractAddress).removeLiquidityPool(p2.removeLP);
+            }
+        p2.executed = true;
+    }
 }
