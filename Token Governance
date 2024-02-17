@@ -1,0 +1,107 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+interface ITokenFactory {
+    function updateCreationFee(uint256 _newFee) external;
+    function updateFeeRecipient(address payable _newRecipient) external;
+}
+
+interface IERC20 {
+    function balanceOf(address account) external view returns (uint256);
+}
+
+contract Governance {
+    address public tokenFactoryAddress;
+    address public owner;
+    IERC20 public votingToken;
+    bool private votingTokenSet;
+    uint256 public minimumQuorum;
+    uint256 public debatingPeriodDuration;
+    
+    enum ProposalType { UpdateCreationFee, UpdateFeeRecipient, UpdateTokenFactoryAddress }
+
+    struct Proposal {
+        uint256 id;
+        ProposalType proposalType;
+        uint256 newFee;
+        address newFeeRecipient;
+        address newTokenFactoryAddress;
+        uint256 voteCountYes;
+        uint256 voteCountNo;
+        bool executed;
+        mapping(address => bool) voted;
+    }
+
+    uint256 public nextProposalId;
+    mapping(uint256 => Proposal) public proposals;
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not owner");
+        _;
+    }
+
+    constructor(address _tokenFactoryAddress, uint256 _minimumQuorum, uint256 _debatingPeriodDuration) {
+        tokenFactoryAddress = _tokenFactoryAddress;
+        owner = msg.sender;
+        minimumQuorum = _minimumQuorum;
+        debatingPeriodDuration = _debatingPeriodDuration;
+    }
+
+    function setVotingToken(address _votingToken) public onlyOwner {
+        require(!votingTokenSet, "Voting token already set");
+        votingToken = IERC20(_votingToken);
+        votingTokenSet = true;
+    }
+
+    function createProposal(ProposalType _type, uint256 _newFee, address _newAddress) public onlyOwner {
+        Proposal storage p = proposals[nextProposalId];
+        p.id = nextProposalId;
+        p.proposalType = _type;
+
+    if (_type == ProposalType.UpdateCreationFee) {
+        p.newFee = _newFee;
+    } else if (_type == ProposalType.UpdateFeeRecipient) {
+        p.newFeeRecipient = _newAddress;
+    } else if (_type == ProposalType.UpdateTokenFactoryAddress) {
+        p.newTokenFactoryAddress = _newAddress;
+    }
+
+        p.executed = false;
+        nextProposalId++;
+    }
+
+    function vote(uint256 _proposalId, bool _voteYes) public {
+        require(votingTokenSet, "Voting token not set");
+        require(votingToken.balanceOf(msg.sender) > 0, "Not a token holder");
+
+        Proposal storage p = proposals[_proposalId];
+        require(!p.executed, "Proposal already executed");
+        require(!p.voted[msg.sender], "Already voted");
+
+        p.voted[msg.sender] = true;
+        if (_voteYes) {
+            p.voteCountYes++;
+        } else {
+            p.voteCountNo++;
+        }
+    }
+
+    function executeProposal(uint256 _proposalId) public {
+    Proposal storage p = proposals[_proposalId];
+    require(!p.executed, "Proposal already executed");
+    require(p.voteCountYes > p.voteCountNo, "Proposal did not pass");
+    require(p.voteCountYes >= minimumQuorum, "Not enough votes");
+
+    p.executed = true;
+
+    if (p.proposalType == ProposalType.UpdateCreationFee) {
+        ITokenFactory(tokenFactoryAddress).updateCreationFee(p.newFee);
+        } else if (p.proposalType == ProposalType.UpdateFeeRecipient) {
+            ITokenFactory(tokenFactoryAddress).updateFeeRecipient(payable(p.newFeeRecipient));
+        } else if (p.proposalType == ProposalType.UpdateTokenFactoryAddress) {
+            require(p.newTokenFactoryAddress != address(0), "Invalid address");
+            tokenFactoryAddress = p.newTokenFactoryAddress;
+        }
+    }
+    
+}
