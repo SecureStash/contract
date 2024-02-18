@@ -12,9 +12,12 @@ interface INewToken {
     function removeVestedTokenContract(address _address) external;
     function removeStakingTokenContract(address _address) external;
     function removeLiquidityPool(address _pool) external;
-    function modifyBuyTax(uint256 _newTax) external;
-    function modifySellTax(uint256 _newTax) external;
-    function modifyBurnTax(uint256 _newTax) external;
+    function modifyBuyTax(uint256 _newTaxPercent) external;
+    function modifySellTax(uint256 _newTaxPercent) external;
+    function modifyBurnTax(uint256 _newTaxPercent) external;
+    function mint(address _to, uint256 _amount) external;
+    function updateTreasury(address _treasury) external;
+    function disableMinting() external;
 }
 
 interface IERC20 {
@@ -32,6 +35,7 @@ contract Governance {
     enum ProposalType { UpdateCreationFee, UpdateFeeRecipient, UpdateGovernanceContract, UpdateTokenFactoryAddress }
     enum ProposalType2 { RemoveLockedTokenContract, RemoveVestedTokenContract, RemoveStakingTokenContract, RemoveLiquidityPool }
     enum TaxProposalType { UpdateBuyTax, UpdateSellTax, UpdateBurnTax }
+    enum ManageProposalType { MintTokens, UpdateTreasury, DisableMint }
 
     struct Proposal {
         uint256 id;
@@ -71,10 +75,24 @@ contract Governance {
         mapping(address => bool) voted;
     }
 
+    struct ManageTokens {
+        uint256 id;
+        ManageProposalType proposalType;
+        address to;
+        uint256 amount;
+        address treasuryAddress;
+        uint256 voteCountYes;
+        uint256 voteCountNo;
+        bool executed;
+        mapping(address => bool) voted;
+    }
+    
+
     uint256 public nextProposalId;
     mapping(uint256 => Proposal) public proposals;
     mapping(uint256 => Proposal2) public proposal2s;
     mapping(uint256 => ModifyTax) public modifyTax;
+    mapping(uint256 => ManageTokens) public manageTokensProposals;
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Not owner");
@@ -149,6 +167,22 @@ contract Governance {
         nextProposalId++;
     }
 
+    function createManageTokensProposal(ManageProposalType _type, address _to, uint256 _amount, address _treasuryAddress) public onlyOwner {
+        ManageTokens storage m = manageTokensProposals[nextProposalId];
+        m.id = nextProposalId;
+        m.proposalType = _type;
+    
+        if (_type == ManageProposalType.MintTokens) {
+            m.to = _to;
+            m.amount = _amount;
+        } else if (_type == ManageProposalType.UpdateTreasury) {
+            m.treasuryAddress = _treasuryAddress;
+        } // No need for an else branch for DisableMint as it requires no parameters
+        
+        m.executed = false;
+        nextProposalId++;
+    }
+
     function vote(uint256 _proposalId, bool _voteYes) public {
         require(votingTokenSet, "Voting token not set");
         require(votingToken.balanceOf(msg.sender) > 0, "Not a token holder");
@@ -219,6 +253,24 @@ contract Governance {
                 INewToken(_contractAddress).modifyBuyTax(t.newBurnTax);
             }
         t.executed = true;
+    }
+
+    function executeManageTokensProposal(uint256 _proposalId, address _contractAddress) public {
+        ManageTokens storage m = manageTokensProposals[_proposalId];
+        require(!m.executed, "Proposal already executed");
+        require(m.voteCountYes > m.voteCountNo, "Proposal did not pass");
+        require(m.voteCountYes >= minimumQuorum, "Not enough votes");
+    
+        if (m.proposalType == ManageProposalType.MintTokens) {
+            require(m.amount > 0, "Invalid mint amount");
+            INewToken(_contractAddress).mint(m.to, m.amount);
+        } else if (m.proposalType == ManageProposalType.UpdateTreasury) {
+            require(m.treasuryAddress != address(0), "Invalid treasury address");
+            INewToken(_contractAddress).updateTreasury(m.treasuryAddress);
+        } else if (m.proposalType == ManageProposalType.DisableMint) {
+            INewToken(_contractAddress).disableMinting();
+        }
+        m.executed = true;
     }
 
 }
