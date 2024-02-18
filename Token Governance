@@ -47,6 +47,12 @@ contract Governance {
     enum TaxProposalType { UpdateBuyTax, UpdateSellTax, UpdateBurnTax }
     enum ManageProposalType { MintTokens, UpdateTreasury, DisableMint }
 
+    struct VotingState {
+        uint256 voteCountYes;
+        uint256 voteCountNo;
+        mapping(address => bool) voted;
+    }
+
     struct Proposal {
         uint256 id;
         ProposalType proposalType;
@@ -54,12 +60,10 @@ contract Governance {
         address newFeeRecipient;
         address newTokenFactoryAddress;
         address newGovernanceContractAddress;
-        uint256 voteCountYes;
-        uint256 voteCountNo;
         bool executed;
-        mapping(address => bool) voted;
         uint256 startTime;
         uint256 endTime;
+        VotingState votingState;
     }
 
     struct Proposal2 {
@@ -67,12 +71,10 @@ contract Governance {
         ProposalType2 proposalType;
         address contractAddress;
         address removeAddress;
-        uint256 voteCountYes;
-        uint256 voteCountNo;
         bool executed;
-        mapping(address => bool) voted;
         uint256 startTime;
         uint256 endTime;
+        VotingState votingState;
     }
 
     struct ModifyTax {
@@ -80,12 +82,10 @@ contract Governance {
         TaxProposalType proposalType;
         address contractAddress;
         uint256 newTaxRate;
-        uint256 voteCountYes;
-        uint256 voteCountNo;
         bool executed;
-        mapping(address => bool) voted;
         uint256 startTime;
         uint256 endTime;
+        VotingState votingState;
     }
 
     struct ManageTokens {
@@ -94,20 +94,17 @@ contract Governance {
         address contractAddress;
         address targetAddress;
         uint256 amount;
-        uint256 voteCountYes;
-        uint256 voteCountNo;
         bool executed;
-        mapping(address => bool) voted;
         uint256 startTime;
         uint256 endTime;
+        VotingState votingState;
     }
     
-
     uint256 public nextProposalId;
-    mapping(uint256 => Proposal) public proposals;
-    mapping(uint256 => Proposal2) public proposal2s;
-    mapping(uint256 => ModifyTax) public modifyTax;
-    mapping(uint256 => ManageTokens) public manageTokensProposals;
+    mapping(uint256 => Proposal) private proposals;
+    mapping(uint256 => Proposal2) private proposal2s;
+    mapping(uint256 => ModifyTax) private modifyTax;
+    mapping(uint256 => ManageTokens) private manageTokensProposals;
 
     event VotingTokenUpdated(address indexed newVotingToken);
     event FactoryProposalCreated(
@@ -293,103 +290,62 @@ contract Governance {
         );
     }
 
-    function voteFactory (uint256 _proposalId, bool _voteYes) public {
+    // Private function to abstract the common voting logic
+    function _castVote(uint256 _proposalId, bool _voteYes, VotingState storage votingState) private {
         require(votingTokenSet, "Voting token not set");
         IStakingContract stakingContract = IStakingContract(stakingContractAddress);
         uint256 voterStake = stakingContract.balanceOf(msg.sender);
         require(voterStake > 0, "Not a staked token holder");
-
-        Proposal storage p = proposals[_proposalId];
-        require(!p.executed, "Proposal already executed");
-        require(!p.voted[msg.sender], "Already voted");
-        require(block.timestamp >= p.startTime && block.timestamp <= p.endTime, "Voting period is over");
+        require(!votingState.voted[msg.sender], "Already voted");
 
         uint256 totalStaked = stakingContract.totalStaked();
-        uint256 votingPower = voterStake * 100 / totalStaked; // This gives the voting power as a percentage
+        uint256 votingPower = (voterStake * 100) / totalStaked;
 
-        p.voted[msg.sender] = true;
+        votingState.voted[msg.sender] = true;
         if (_voteYes) {
-            p.voteCountYes += votingPower;
+            votingState.voteCountYes += votingPower;
         } else {
-            p.voteCountNo += votingPower;
+            votingState.voteCountNo += votingPower;
         }
+
         emit VoteCast(msg.sender, _proposalId, _voteYes, votingPower);
+    }
+
+    function voteFactory (uint256 _proposalId, bool _voteYes) public {
+        Proposal storage p = proposals[_proposalId];
+        require(!p.executed, "Proposal already executed");
+        require(block.timestamp >= p.startTime && block.timestamp <= p.endTime, "Voting period is over");
+        _castVote(_proposalId, _voteYes, p.votingState);
     }
 
     function voteRemoveContract (uint256 _proposalId, bool _voteYes) public {
-        require(votingTokenSet, "Voting token not set");
-        IStakingContract stakingContract = IStakingContract(stakingContractAddress);
-        uint256 voterStake = stakingContract.balanceOf(msg.sender);
-        require(voterStake > 0, "Not a staked token holder");
-    
         Proposal2 storage p2 = proposal2s[_proposalId];
         require(!p2.executed, "Proposal already executed");
-        require(!p2.voted[msg.sender], "Already voted");
         require(block.timestamp >= p2.startTime && block.timestamp <= p2.endTime, "Voting period is over");
-    
-        uint256 totalStaked = stakingContract.totalStaked();
-        uint256 votingPower = voterStake * 100 / totalStaked; // This gives the voting power as a percentage
-    
-        p2.voted[msg.sender] = true;
-        if (_voteYes) {
-            p2.voteCountYes += votingPower;
-        } else {
-            p2.voteCountNo += votingPower;
-        }
-        emit VoteCast(msg.sender, _proposalId, _voteYes, votingPower);
+        _castVote(_proposalId, _voteYes, p2.votingState);
     }
     
     function voteModifyTax (uint256 _proposalId, bool _voteYes) public {
-        require(votingTokenSet, "Voting token not set");
-        IStakingContract stakingContract = IStakingContract(stakingContractAddress);
-        uint256 voterStake = stakingContract.balanceOf(msg.sender);
-        require(voterStake > 0, "Not a staked token holder");
-    
         ModifyTax storage t = modifyTax[_proposalId];
         require(!t.executed, "Proposal already executed");
-        require(!t.voted[msg.sender], "Already voted");
+        //require(!t.voted[msg.sender], "Already voted");
         require(block.timestamp >= t.startTime && block.timestamp <= t.endTime, "Voting period is over");
-    
-        uint256 totalStaked = stakingContract.totalStaked();
-        uint256 votingPower = voterStake * 100 / totalStaked; // This gives the voting power as a percentage
-    
-        t.voted[msg.sender] = true;
-        if (_voteYes) {
-            t.voteCountYes += votingPower;
-        } else {
-            t.voteCountNo += votingPower;
-        }
-        emit VoteCast(msg.sender, _proposalId, _voteYes, votingPower);
+        _castVote(_proposalId, _voteYes, t.votingState);
     }
 
     function voteManageTokens (uint256 _proposalId, bool _voteYes) public {
-        require(votingTokenSet, "Voting token not set");
-        IStakingContract stakingContract = IStakingContract(stakingContractAddress);
-        uint256 voterStake = stakingContract.balanceOf(msg.sender);
-        require(voterStake > 0, "Not a staked token holder");
-    
         ManageTokens storage m = manageTokensProposals[_proposalId];
         require(!m.executed, "Proposal already executed");
-        require(!m.voted[msg.sender], "Already voted");
+        //require(!m.voted[msg.sender], "Already voted");
         require(block.timestamp >= m.startTime && block.timestamp <= m.endTime, "Voting period is over");
-    
-        uint256 totalStaked = stakingContract.totalStaked();
-        uint256 votingPower = voterStake * 100 / totalStaked; // This gives the voting power as a percentage
-    
-        m.voted[msg.sender] = true;
-        if (_voteYes) {
-            m.voteCountYes += votingPower;
-        } else {
-            m.voteCountNo += votingPower;
-        }
-        emit VoteCast(msg.sender, _proposalId, _voteYes, votingPower);
+        _castVote(_proposalId, _voteYes, m.votingState);
     }
 
     function executeFactoryProposal(uint256 _proposalId) public {
         Proposal storage p = proposals[_proposalId];
         require(!p.executed, "Proposal already executed");
-        require(p.voteCountYes > p.voteCountNo, "Proposal did not pass");
-        require(p.voteCountYes >= minimumQuorum, "Not enough votes");
+        require(p.votingState.voteCountYes > p.votingState.voteCountNo, "Proposal did not pass");
+        require(p.votingState.voteCountYes >= minimumQuorum, "Not enough votes");
 
         if (p.proposalType == ProposalType.UpdateCreationFee) {
             ITokenFactory(tokenFactoryAddress).updateCreationFee(p.newFee);
@@ -409,8 +365,8 @@ contract Governance {
         function executeRemoveContract (uint256 _proposalId) public {
             Proposal2 storage p2 = proposal2s[_proposalId];
             require(!p2.executed, "Proposal already executed");
-            require(p2.voteCountYes > p2.voteCountNo, "Proposal did not pass");
-            require(p2.voteCountYes >= minimumQuorum, "Not enough votes");
+            require(p2.votingState.voteCountYes > p2.votingState.voteCountNo, "Proposal did not pass");
+            require(p2.votingState.voteCountYes >= minimumQuorum, "Not enough votes");
     
             INewToken targetContract = INewToken(p2.contractAddress);
 
@@ -440,8 +396,8 @@ contract Governance {
     function executeTaxChange (uint256 _proposalId) public {
         ModifyTax storage t = modifyTax[_proposalId];
         require(!t.executed, "Proposal already executed");
-        require(t.voteCountYes > t.voteCountNo, "Proposal did not pass");
-        require(t.voteCountYes >= minimumQuorum, "Not enough votes");
+        require(t.votingState.voteCountYes > t.votingState.voteCountNo, "Proposal did not pass");
+        require(t.votingState.voteCountYes >= minimumQuorum, "Not enough votes");
             
         address contractAddress = t.contractAddress;
     
@@ -465,8 +421,8 @@ contract Governance {
     function executeManageTokensProposal(uint256 _proposalId) public {
         ManageTokens storage m = manageTokensProposals[_proposalId];
         require(!m.executed, "Proposal already executed");
-        require(m.voteCountYes > m.voteCountNo, "Proposal did not pass");
-        require(m.voteCountYes >= minimumQuorum, "Not enough votes");
+        require(m.votingState.voteCountYes > m.votingState.voteCountNo, "Proposal did not pass");
+        require(m.votingState.voteCountYes >= minimumQuorum, "Not enough votes");
     
         if (m.proposalType == ManageProposalType.MintTokens) {
             require(m.amount > 0, "Invalid mint amount");
