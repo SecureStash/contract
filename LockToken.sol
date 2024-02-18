@@ -14,7 +14,7 @@ contract LockToken is ERC20,AccessControl,ReentrancyGuard{
     address payable owner; 
     uint currentTime;       // The time at which the contract is deployed
     uint256 releaseTime;    // The time at which the tokens are going to be released
-    uint256 releaseToken;   // Number of tokens which are going to be released
+    uint256 releaseToken;   // Number of tokens which are going to be released //
     bool public released = false;
 
     constructor()ERC20("Secure Stash","SST"){
