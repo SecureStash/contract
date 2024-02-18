@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+interface IStakingContract {
+    function balanceOf(address account) external view returns (uint256);
+    function totalStaked() external view returns (uint256);
+}
+
 interface ITokenFactory {
     function updateCreationFee(uint256 _newFee) external;
     function updateFeeRecipient(address payable _newRecipient) external;
@@ -29,12 +34,13 @@ interface IERC20 {
 }
 
 contract Governance {
+    address public stakingContractAddress;
     address public tokenFactoryAddress;
     address public owner;
     IERC20 public votingToken;
     bool private votingTokenSet;
     uint256 public minimumQuorum;
-    uint256 public debatingPeriodDuration;
+    uint256 public votingPeriod;
     
     enum ProposalType { UpdateCreationFee, UpdateFeeRecipient, UpdateGovernanceContract, UpdateTokenFactoryAddress }
     enum ProposalType2 { RemoveLockedTokenContract, RemoveVestedTokenContract, RemoveStakingTokenContract, RemoveLiquidityPool }
@@ -52,6 +58,8 @@ contract Governance {
         uint256 voteCountNo;
         bool executed;
         mapping(address => bool) voted;
+        uint256 startTime;
+        uint256 endTime;
     }
 
     struct Proposal2 {
@@ -63,6 +71,8 @@ contract Governance {
         uint256 voteCountNo;
         bool executed;
         mapping(address => bool) voted;
+        uint256 startTime;
+        uint256 endTime;
     }
 
     struct ModifyTax {
@@ -74,6 +84,8 @@ contract Governance {
         uint256 voteCountNo;
         bool executed;
         mapping(address => bool) voted;
+        uint256 startTime;
+        uint256 endTime;
     }
 
     struct ManageTokens {
@@ -86,6 +98,8 @@ contract Governance {
         uint256 voteCountNo;
         bool executed;
         mapping(address => bool) voted;
+        uint256 startTime;
+        uint256 endTime;
     }
     
 
@@ -128,7 +142,8 @@ contract Governance {
     event VoteCast(
         address indexed voter,
         uint256 indexed proposalId,
-        bool voteYes
+        bool voteYes,
+        uint256 votingPower
     );
     event FactoryProposalExecuted(
         uint256 indexed proposalId,
@@ -163,11 +178,11 @@ contract Governance {
         _; 
     }
 
-    constructor(address _tokenFactoryAddress, uint256 _minimumQuorum, uint256 _debatingPeriodDuration) {
+    constructor(address _tokenFactoryAddress, uint256 _minimumQuorum, uint256 _votingPeriod) {
         tokenFactoryAddress = _tokenFactoryAddress;
         owner = msg.sender;
         minimumQuorum = _minimumQuorum;
-        debatingPeriodDuration = _debatingPeriodDuration;
+        votingPeriod = _votingPeriod;
     }
 
     function setVotingToken(address _votingToken) public onlyOwner {
@@ -177,69 +192,82 @@ contract Governance {
         emit VotingTokenUpdated(_votingToken);
     }
 
+    function setStakingContract(address _stakingContract) public onlyOwner {
+        stakingContractAddress = _stakingContract;
+    }
+
     function createFactoryProposal(ProposalType _type, uint256 _newFee, address _newAddress) public onlyOwner {
-        Proposal storage p = proposals[nextProposalId];
-        p.id = nextProposalId;
+        uint256 newProposalId = nextProposalId++;
+        Proposal storage p = proposals[newProposalId];
+        p.id = newProposalId;
         p.proposalType = _type;
 
     if (_type == ProposalType.UpdateCreationFee) {
         p.newFee = _newFee;
-    } else if (_type == ProposalType.UpdateFeeRecipient) {
-        p.newFeeRecipient = _newAddress;
-    } else if (_type == ProposalType.UpdateGovernanceContract) {
-        p.newGovernanceContractAddress = _newAddress;
-    } else if (_type == ProposalType.UpdateTokenFactoryAddress) {
-        p.newTokenFactoryAddress = _newAddress;
-    }
+        } else if (_type == ProposalType.UpdateFeeRecipient) {
+            p.newFeeRecipient = _newAddress;
+        } else if (_type == ProposalType.UpdateGovernanceContract) {
+            p.newGovernanceContractAddress = _newAddress;
+        } else if (_type == ProposalType.UpdateTokenFactoryAddress) {
+            p.newTokenFactoryAddress = _newAddress;
+        }
 
+        p.startTime = block.timestamp;
+        p.endTime = p.startTime + votingPeriod;
         p.executed = false;
         emit FactoryProposalCreated(
-            nextProposalId,
+            newProposalId,
             _type,
             _newFee,
             _newAddress,
             msg.sender
         );
-        nextProposalId++;
     }
     
     function removeContractProposal(ProposalType2 _type, address _contractAddress, address _removeAddress) public onlyOwner {
-        Proposal2 storage p2 = proposal2s[nextProposalId];
-        p2.id = nextProposalId;
+        uint256 newProposalId = nextProposalId++;
+        Proposal2 storage p2 = proposal2s[newProposalId];
+        p2.id = newProposalId;
         p2.proposalType = _type;
         p2.contractAddress = _contractAddress;
-        p2.removeAddress = _removeAddress;    
+        p2.removeAddress = _removeAddress;
+        p2.startTime = block.timestamp;
+        p2.endTime = p2.startTime + votingPeriod;
         p2.executed = false;
+
         emit RemoveContractProposalCreated(
-            nextProposalId,
+            newProposalId,
             _type,
             _contractAddress,
             _removeAddress,
             msg.sender
         );
-        nextProposalId++;
     }
 
-    function modifyTaxProposal(TaxProposalType _type, address _contractAddress, uint256 _newTaxRate) public onlyOwner {
-        ModifyTax storage t = modifyTax[nextProposalId];
-        t.id = nextProposalId;
+    function modifyTaxProposal (TaxProposalType _type, address _contractAddress, uint256 _newTaxRate) public onlyOwner {
+        uint256 newProposalId = nextProposalId++;
+        ModifyTax storage t = modifyTax[newProposalId];
+        t.id = newProposalId;
         t.proposalType = _type;
         t.contractAddress = _contractAddress;
         t.newTaxRate = _newTaxRate;
+        t.startTime = block.timestamp;
+        t.endTime = t.startTime + votingPeriod;
         t.executed = false;
+
         emit TaxProposalCreated(
-            nextProposalId,
+            newProposalId,
             _type,
             _newTaxRate,
             _contractAddress,
             msg.sender
         );
-        nextProposalId++;
     }
 
-    function createManageTokensProposal(ManageProposalType _type, address _contractAddress, address _targetAddress, uint256 _amount) public onlyOwner {
-        ManageTokens storage m = manageTokensProposals[nextProposalId];
-        m.id = nextProposalId;
+    function createManageTokensProposal (ManageProposalType _type, address _contractAddress, address _targetAddress, uint256 _amount) public onlyOwner {
+        uint256 newProposalId = nextProposalId++;
+        ManageTokens storage m = manageTokensProposals[newProposalId];
+        m.id = newProposalId;
         m.proposalType = _type;
         m.contractAddress = _contractAddress;
         m.targetAddress = _targetAddress;
@@ -251,35 +279,112 @@ contract Governance {
             m.amount = 0;
         }
         
+        m.startTime = block.timestamp;
+        m.endTime = m.startTime + votingPeriod;
         m.executed = false;
+
         emit ManageTokensProposalCreated(
-            nextProposalId,
+            newProposalId,
             _type,
             _contractAddress,
             _targetAddress,
             _amount,
             msg.sender
         );
-        nextProposalId++;
     }
 
-    function vote(uint256 _proposalId, bool _voteYes) public {
+    function voteFactory (uint256 _proposalId, bool _voteYes) public {
         require(votingTokenSet, "Voting token not set");
-        require(votingToken.balanceOf(msg.sender) > 0, "Not a token holder");
+        IStakingContract stakingContract = IStakingContract(stakingContractAddress);
+        uint256 voterStake = stakingContract.balanceOf(msg.sender);
+        require(voterStake > 0, "Not a staked token holder");
 
         Proposal storage p = proposals[_proposalId];
         require(!p.executed, "Proposal already executed");
         require(!p.voted[msg.sender], "Already voted");
+        require(block.timestamp >= p.startTime && block.timestamp <= p.endTime, "Voting period is over");
+
+        uint256 totalStaked = stakingContract.totalStaked();
+        uint256 votingPower = voterStake * 100 / totalStaked; // This gives the voting power as a percentage
 
         p.voted[msg.sender] = true;
         if (_voteYes) {
-            p.voteCountYes++;
+            p.voteCountYes += votingPower;
         } else {
-            p.voteCountNo++;
+            p.voteCountNo += votingPower;
         }
-        emit VoteCast(msg.sender, _proposalId, _voteYes);
+        emit VoteCast(msg.sender, _proposalId, _voteYes, votingPower);
+    }
+
+    function voteRemoveContract (uint256 _proposalId, bool _voteYes) public {
+        require(votingTokenSet, "Voting token not set");
+        IStakingContract stakingContract = IStakingContract(stakingContractAddress);
+        uint256 voterStake = stakingContract.balanceOf(msg.sender);
+        require(voterStake > 0, "Not a staked token holder");
+    
+        Proposal2 storage p2 = proposal2s[_proposalId];
+        require(!p2.executed, "Proposal already executed");
+        require(!p2.voted[msg.sender], "Already voted");
+        require(block.timestamp >= p2.startTime && block.timestamp <= p2.endTime, "Voting period is over");
+    
+        uint256 totalStaked = stakingContract.totalStaked();
+        uint256 votingPower = voterStake * 100 / totalStaked; // This gives the voting power as a percentage
+    
+        p2.voted[msg.sender] = true;
+        if (_voteYes) {
+            p2.voteCountYes += votingPower;
+        } else {
+            p2.voteCountNo += votingPower;
+        }
+        emit VoteCast(msg.sender, _proposalId, _voteYes, votingPower);
     }
     
+    function voteModifyTax (uint256 _proposalId, bool _voteYes) public {
+        require(votingTokenSet, "Voting token not set");
+        IStakingContract stakingContract = IStakingContract(stakingContractAddress);
+        uint256 voterStake = stakingContract.balanceOf(msg.sender);
+        require(voterStake > 0, "Not a staked token holder");
+    
+        ModifyTax storage t = modifyTax[_proposalId];
+        require(!t.executed, "Proposal already executed");
+        require(!t.voted[msg.sender], "Already voted");
+        require(block.timestamp >= t.startTime && block.timestamp <= t.endTime, "Voting period is over");
+    
+        uint256 totalStaked = stakingContract.totalStaked();
+        uint256 votingPower = voterStake * 100 / totalStaked; // This gives the voting power as a percentage
+    
+        t.voted[msg.sender] = true;
+        if (_voteYes) {
+            t.voteCountYes += votingPower;
+        } else {
+            t.voteCountNo += votingPower;
+        }
+        emit VoteCast(msg.sender, _proposalId, _voteYes, votingPower);
+    }
+
+    function voteManageTokens (uint256 _proposalId, bool _voteYes) public {
+        require(votingTokenSet, "Voting token not set");
+        IStakingContract stakingContract = IStakingContract(stakingContractAddress);
+        uint256 voterStake = stakingContract.balanceOf(msg.sender);
+        require(voterStake > 0, "Not a staked token holder");
+    
+        ManageTokens storage m = manageTokensProposals[_proposalId];
+        require(!m.executed, "Proposal already executed");
+        require(!m.voted[msg.sender], "Already voted");
+        require(block.timestamp >= m.startTime && block.timestamp <= m.endTime, "Voting period is over");
+    
+        uint256 totalStaked = stakingContract.totalStaked();
+        uint256 votingPower = voterStake * 100 / totalStaked; // This gives the voting power as a percentage
+    
+        m.voted[msg.sender] = true;
+        if (_voteYes) {
+            m.voteCountYes += votingPower;
+        } else {
+            m.voteCountNo += votingPower;
+        }
+        emit VoteCast(msg.sender, _proposalId, _voteYes, votingPower);
+    }
+
     function executeFactoryProposal(uint256 _proposalId) public {
         Proposal storage p = proposals[_proposalId];
         require(!p.executed, "Proposal already executed");
@@ -382,5 +487,4 @@ contract Governance {
             msg.sender
         );
     }
-
 }
