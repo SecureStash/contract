@@ -2,20 +2,18 @@
 pragma solidity ^0.8.24;
 
 interface ILockedTokenContract {
-    function balanceOf(address account) external view returns (uint256);
+    function balanceOf(address _account) external view returns (uint256);
 }
 
 interface IVestedTokenContract {
-    function balanceOf(address account) external view returns (uint256);
+    function balanceOf(address _account) external view returns (uint256);
 }
 
 interface IStakingTokenContract {
-    function balanceOf(address account) external view returns (uint256);
+    function balanceOf(address _account) external view returns (uint256);
 }
 
 interface ITokenFactory {
-    function updateCreationFee(uint256 newFee) external;
-    function updateFeeRecipient(address payable newRecipient) external;
     function getGovernanceContract() external view returns (address);
 }
 
@@ -250,19 +248,19 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
         array.pop();
     }
     
-    function updateBuyTax(uint256 _newTaxPercent) public onlyGovernance {
+    function modifyBuyTax(uint256 _newTaxPercent) public onlyGovernance {
         require(_newTaxPercent <= 20, "NEW TAX SHOULD BE <= 20%");
         buyTax = _newTaxPercent;
         emit BuyTaxUpdated(_newTaxPercent);
     }
 
-    function updateSellTax(uint256 _newTaxPercent) public onlyGovernance {
+    function modifySellTax(uint256 _newTaxPercent) public onlyGovernance {
         require(_newTaxPercent <= 20, "NEW TAX SHOULD BE <= 20%");
         sellTax = _newTaxPercent;
         emit SellTaxUpdated(_newTaxPercent);
     }
 
-    function updateBurnTax(uint256 _newTaxPercent) public onlyGovernance {
+    function modifyBurnTax(uint256 _newTaxPercent) public onlyGovernance {
         require(_newTaxPercent <= 20, "NEW TAX SHOULD BE <= 20%");
         burnTax = _newTaxPercent;
         emit BurnTaxUpdated(_newTaxPercent);
@@ -284,11 +282,11 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
         emit LiquidityPoolRemoved(_pool);
     }
     
-    function mint(address to, uint256 amount) public onlyGovernance nonReentrant {
+    function mint(address _to, uint256 _amount) public onlyGovernance nonReentrant {
         require(_mintingEnabled, "MINTING_DISABLED");
-        require(totalSupply() + amount <= _maximumSupply, "CANNOT EXCEED MAXIMUM SUPPLY");
-        _mint(to, amount);
-        emit TokenMinted(to, amount);
+        require(totalSupply() + _amount <= _maximumSupply, "CANNOT EXCEED MAXIMUM SUPPLY");
+        _mint(_to, _amount);
+        emit TokenMinted(_to, _amount);
     }
 
     function disableMinting() public onlyGovernance {
