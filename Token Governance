@@ -95,6 +95,69 @@ contract Governance {
     mapping(uint256 => ModifyTax) public modifyTax;
     mapping(uint256 => ManageTokens) public manageTokensProposals;
 
+    event VotingTokenUpdated(address indexed newVotingToken);
+    event FactoryProposalCreated(
+        uint256 indexed proposalId,
+        ProposalType proposalType,
+        uint256 newFee,
+        address newAddress,
+        address indexed createdBy
+    );
+    event RemoveContractProposalCreated(
+        uint256 indexed proposalId,
+        ProposalType2 proposalType,
+        address indexed contractAddress,
+        address removeAddress,
+        address indexed createdBy
+    );
+    event TaxProposalCreated(
+        uint256 indexed proposalId,
+        TaxProposalType proposalType,
+        uint256 newTaxRate,
+        address indexed contractAddress,
+        address indexed createdBy
+    );
+    event ManageTokensProposalCreated(
+        uint256 indexed proposalId,
+        ManageProposalType proposalType,
+        address indexed contractAddress,
+        address targetAddress,
+        uint256 amount,
+        address indexed createdBy
+    );
+    event VoteCast(
+        address indexed voter,
+        uint256 indexed proposalId,
+        bool voteYes
+    );
+    event FactoryProposalExecuted(
+        uint256 indexed proposalId,
+        ProposalType proposalType,
+        address indexed executedBy
+    );
+    event RemoveContractExecuted(
+        uint256 indexed proposalId,
+        ProposalType2 proposalType,
+        address indexed contractAddress,
+        address removeAddress,
+        address indexed executedBy
+    );
+    event TaxChangeExecuted(
+        uint256 indexed proposalId,
+        TaxProposalType proposalType,
+        uint256 newTaxRate,
+        address indexed contractAddress,
+        address indexed executedBy
+    );
+    event ManageTokensProposalExecuted(
+        uint256 indexed proposalId,
+        ManageProposalType proposalType,
+        uint256 amount,
+        address contractAddress,
+        address targetAddress,
+        address indexed executedBy
+    );
+
     modifier onlyOwner() {
         require(msg.sender == owner, "Not owner");
         _; 
@@ -111,6 +174,7 @@ contract Governance {
         require(!votingTokenSet, "Voting token already set");
         votingToken = IERC20(_votingToken);
         votingTokenSet = true;
+        emit VotingTokenUpdated(_votingToken);
     }
 
     function createFactoryProposal(ProposalType _type, uint256 _newFee, address _newAddress) public onlyOwner {
@@ -129,6 +193,13 @@ contract Governance {
     }
 
         p.executed = false;
+        emit FactoryProposalCreated(
+            nextProposalId,
+            _type,
+            _newFee,
+            _newAddress,
+            msg.sender
+        );
         nextProposalId++;
     }
     
@@ -139,6 +210,13 @@ contract Governance {
         p2.contractAddress = _contractAddress;
         p2.removeAddress = _removeAddress;    
         p2.executed = false;
+        emit RemoveContractProposalCreated(
+            nextProposalId,
+            _type,
+            _contractAddress,
+            _removeAddress,
+            msg.sender
+        );
         nextProposalId++;
     }
 
@@ -149,6 +227,13 @@ contract Governance {
         t.contractAddress = _contractAddress;
         t.newTaxRate = _newTaxRate;
         t.executed = false;
+        emit TaxProposalCreated(
+            nextProposalId,
+            _type,
+            _newTaxRate,
+            _contractAddress,
+            msg.sender
+        );
         nextProposalId++;
     }
 
@@ -167,6 +252,14 @@ contract Governance {
         }
         
         m.executed = false;
+        emit ManageTokensProposalCreated(
+            nextProposalId,
+            _type,
+            _contractAddress,
+            _targetAddress,
+            _amount,
+            msg.sender
+        );
         nextProposalId++;
     }
 
@@ -184,6 +277,7 @@ contract Governance {
         } else {
             p.voteCountNo++;
         }
+        emit VoteCast(msg.sender, _proposalId, _voteYes);
     }
     
     function executeFactoryProposal(uint256 _proposalId) public {
@@ -204,6 +298,7 @@ contract Governance {
                 tokenFactoryAddress = p.newTokenFactoryAddress;
             } 
             p.executed = true;
+            emit FactoryProposalExecuted(_proposalId, p.proposalType, msg.sender);
         }
         
         function executeRemoveContract (uint256 _proposalId) public {
@@ -228,6 +323,13 @@ contract Governance {
                 targetContract.removeLiquidityPool(p2.removeAddress);
             }
         p2.executed = true;
+        emit RemoveContractExecuted(
+            _proposalId,
+            p2.proposalType,
+            p2.contractAddress,
+            p2.removeAddress,
+            msg.sender
+        );
     }
 
     function executeTaxChange (uint256 _proposalId) public {
@@ -246,6 +348,13 @@ contract Governance {
                 INewToken(contractAddress).modifyBurnTax(t.newTaxRate);
             }
         t.executed = true;
+        emit TaxChangeExecuted(
+            _proposalId,
+            t.proposalType,
+            t.newTaxRate,
+            contractAddress,
+            msg.sender
+        );
     }
 
     function executeManageTokensProposal(uint256 _proposalId) public {
@@ -264,6 +373,14 @@ contract Governance {
             INewToken(m.contractAddress).disableMinting();
         }
         m.executed = true;
+        emit ManageTokensProposalExecuted(
+            _proposalId,
+            m.proposalType,
+            m.amount,
+            m.contractAddress,
+            m.targetAddress,
+            msg.sender
+        );
     }
 
 }
