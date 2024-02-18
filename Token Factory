@@ -145,7 +145,10 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     event LiquidityPoolAdded(address indexed pool);
     event LiquidityPoolRemoved(address indexed pool);
 
-    mapping(address => bool) public isLiquidityPool;
+    mapping(address => bool) private isLockedTokenContractMapping;
+    mapping(address => bool) private isVestedTokenContractMapping;
+    mapping(address => bool) private isStakingTokenContractMapping;
+    mapping(address => bool) private isLiquidityPool;
 
     constructor(
         string memory name,
@@ -177,6 +180,22 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
         address governanceContract = ITokenFactory(tokenFactoryAddress).getGovernanceContract();
         if (_msgSender() != governanceContract) revert UnauthorizedCaller();
         _;
+    }
+
+    function isLockedTokenContract(address _address) external view returns (bool) {
+        return isLockedTokenContractMapping[_address];
+    }
+
+    function isVestedTokenContract(address _address) external view returns (bool) {
+        return isVestedTokenContractMapping[_address];
+    }
+
+    function isStakingTokenContract(address _address) external view returns (bool) {
+        return isStakingTokenContractMapping[_address];
+    }
+
+    function isLiquidityPoolAddress(address _pool) external view returns (bool) {
+        return isLiquidityPool[_pool];
     }
 
     function addLockedTokenContract(address _address) public onlyOwner {
@@ -273,6 +292,7 @@ contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     }
 
     function addLiquidityPool(address _pool) public onlyOwner {
+        require(_pool != address(0), "INVALID_ADDRESS");
         isLiquidityPool[_pool] = true;
         emit LiquidityPoolAdded(_pool);
     }
