@@ -12,6 +12,10 @@ interface INewToken {
     function removeVestedTokenContract(address _address) external;
     function removeStakingTokenContract(address _address) external;
     function removeLiquidityPool(address _pool) external;
+    function isLockedTokenContract(address _address) external view returns (bool);
+    function isVestedTokenContract(address _address) external view returns (bool);
+    function isStakingTokenContract(address _address) external view returns (bool);
+    function isLiquidityPoolAddress(address _pool) external view returns (bool);
     function modifyBuyTax(uint256 _newTaxPercent) external;
     function modifySellTax(uint256 _newTaxPercent) external;
     function modifyBurnTax(uint256 _newTaxPercent) external;
@@ -53,10 +57,8 @@ contract Governance {
     struct Proposal2 {
         uint256 id;
         ProposalType2 proposalType;
-        address removeLockedContract;
-        address removeVestedContract;
-        address removeStakedContract;
-        address removeLP;
+        address contractAddress;
+        address removeAddress;
         uint256 voteCountYes;
         uint256 voteCountNo;
         bool executed;
@@ -66,9 +68,8 @@ contract Governance {
     struct ModifyTax {
         uint256 id;
         TaxProposalType proposalType;
-        uint256 newBuyTax;
-        uint256 newSellTax;
-        uint256 newBurnTax;
+        address contractAddress;
+        uint256 newTaxRate;
         uint256 voteCountYes;
         uint256 voteCountNo;
         bool executed;
@@ -78,9 +79,9 @@ contract Governance {
     struct ManageTokens {
         uint256 id;
         ManageProposalType proposalType;
-        address to;
+        address contractAddress;
+        address targetAddress;
         uint256 amount;
-        address treasuryAddress;
         uint256 voteCountYes;
         uint256 voteCountNo;
         bool executed;
@@ -131,53 +132,39 @@ contract Governance {
         nextProposalId++;
     }
     
-    function removeContractProposal(ProposalType2 _type, address _contractAddress) public onlyOwner {
+    function removeContractProposal(ProposalType2 _type, address _contractAddress, address _removeAddress) public onlyOwner {
         Proposal2 storage p2 = proposal2s[nextProposalId];
         p2.id = nextProposalId;
         p2.proposalType = _type;
-
-    if (_type == ProposalType2.RemoveLockedTokenContract) {
-        p2.removeLockedContract = _contractAddress;
-    } else if (_type == ProposalType2.RemoveVestedTokenContract) {
-        p2.removeVestedContract = _contractAddress;
-    } else if (_type == ProposalType2.RemoveStakingTokenContract) {
-        p2.removeStakedContract = _contractAddress;
-    } else if (_type == ProposalType2.RemoveLiquidityPool) {
-        p2.removeLP = _contractAddress;
-    }
-    
+        p2.contractAddress = _contractAddress;
+        p2.removeAddress = _removeAddress;    
         p2.executed = false;
         nextProposalId++;
     }
 
-    function modifyTaxProposal(TaxProposalType _type, uint256 _newTax) public {
+    function modifyTaxProposal(TaxProposalType _type, address _contractAddress, uint256 _newTaxRate) public onlyOwner {
         ModifyTax storage t = modifyTax[nextProposalId];
         t.id = nextProposalId;
         t.proposalType = _type;
-
-    if (_type == TaxProposalType.UpdateBuyTax) {
-        t.newBuyTax = _newTax;
-    } else if (_type == TaxProposalType.UpdateSellTax) {
-        t.newSellTax = _newTax;
-    } else if (_type == TaxProposalType.UpdateBurnTax) {
-        t.newBurnTax = _newTax;
-    }
-    
+        t.contractAddress = _contractAddress;
+        t.newTaxRate = _newTaxRate;
         t.executed = false;
         nextProposalId++;
     }
 
-    function createManageTokensProposal(ManageProposalType _type, address _to, uint256 _amount, address _treasuryAddress) public onlyOwner {
+    function createManageTokensProposal(ManageProposalType _type, address _contractAddress, address _targetAddress, uint256 _amount) public onlyOwner {
         ManageTokens storage m = manageTokensProposals[nextProposalId];
         m.id = nextProposalId;
         m.proposalType = _type;
+        m.contractAddress = _contractAddress;
+        m.targetAddress = _targetAddress;
     
         if (_type == ManageProposalType.MintTokens) {
-            m.to = _to;
             m.amount = _amount;
-        } else if (_type == ManageProposalType.UpdateTreasury) {
-            m.treasuryAddress = _treasuryAddress;
-        } // No need for an else branch for DisableMint as it requires no parameters
+        } else {
+            // For UpdateTreasury and DisableMint, _amount is not used.
+            m.amount = 0;
+        }
         
         m.executed = false;
         nextProposalId++;
@@ -219,43 +206,49 @@ contract Governance {
             p.executed = true;
         }
         
-        function executeRemoveContract (uint256 _proposalId, address _contractAddress) public {
+        function executeRemoveContract (uint256 _proposalId) public {
             Proposal2 storage p2 = proposal2s[_proposalId];
             require(!p2.executed, "Proposal already executed");
             require(p2.voteCountYes > p2.voteCountNo, "Proposal did not pass");
             require(p2.voteCountYes >= minimumQuorum, "Not enough votes");
     
+            INewToken targetContract = INewToken(p2.contractAddress);
+
         if (p2.proposalType == ProposalType2.RemoveLockedTokenContract) {
-            INewToken(_contractAddress).removeLockedTokenContract(p2.removeLockedContract);
+            require(targetContract.isLockedTokenContract(p2.removeAddress), "Address not found in locked contracts");
+            targetContract.removeLockedTokenContract(p2.removeAddress);
             } else if (p2.proposalType == ProposalType2.RemoveVestedTokenContract) {
-                //require(p.newGovernanceContractAddress != address(0), "Invalid address");    
-                INewToken(_contractAddress).removeVestedTokenContract(p2.removeVestedContract);
+                require(targetContract.isVestedTokenContract(p2.removeAddress), "Address not found in vested contracts");
+                targetContract.removeVestedTokenContract(p2.removeAddress);
             } else if (p2.proposalType == ProposalType2.RemoveStakingTokenContract) {
-                INewToken(_contractAddress).removeStakingTokenContract(p2.removeStakedContract);
+                require(targetContract.isStakingTokenContract(p2.removeAddress), "Address not found in staking contracts");
+                targetContract.removeStakingTokenContract(p2.removeAddress);
             } else if (p2.proposalType == ProposalType2.RemoveLiquidityPool) {
-                //require(p.newGovernanceContractAddress != address(0), "Invalid address");    
-                INewToken(_contractAddress).removeLiquidityPool(p2.removeLP);
+                require(targetContract.isLiquidityPoolAddress(p2.removeAddress), "Address not found in liquidity pools");
+                targetContract.removeLiquidityPool(p2.removeAddress);
             }
         p2.executed = true;
     }
 
-    function executeTaxChange (uint256 _proposalId, address _contractAddress) public {
-            ModifyTax storage t = modifyTax[_proposalId];
-            require(!t.executed, "Proposal already executed");
-            require(t.voteCountYes > t.voteCountNo, "Proposal did not pass");
-            require(t.voteCountYes >= minimumQuorum, "Not enough votes");
+    function executeTaxChange (uint256 _proposalId) public {
+        ModifyTax storage t = modifyTax[_proposalId];
+        require(!t.executed, "Proposal already executed");
+        require(t.voteCountYes > t.voteCountNo, "Proposal did not pass");
+        require(t.voteCountYes >= minimumQuorum, "Not enough votes");
+            
+        address contractAddress = t.contractAddress;
     
         if (t.proposalType == TaxProposalType.UpdateBuyTax) {
-            INewToken(_contractAddress).modifyBuyTax(t.newBuyTax);
+            INewToken(contractAddress).modifyBuyTax(t.newTaxRate);
             } else if (t.proposalType == TaxProposalType.UpdateSellTax) {
-                INewToken(_contractAddress).modifyBuyTax(t.newSellTax);
+                INewToken(contractAddress).modifySellTax(t.newTaxRate);
             } else if (t.proposalType == TaxProposalType.UpdateBurnTax) {
-                INewToken(_contractAddress).modifyBuyTax(t.newBurnTax);
+                INewToken(contractAddress).modifyBurnTax(t.newTaxRate);
             }
         t.executed = true;
     }
 
-    function executeManageTokensProposal(uint256 _proposalId, address _contractAddress) public {
+    function executeManageTokensProposal(uint256 _proposalId) public {
         ManageTokens storage m = manageTokensProposals[_proposalId];
         require(!m.executed, "Proposal already executed");
         require(m.voteCountYes > m.voteCountNo, "Proposal did not pass");
@@ -263,12 +256,12 @@ contract Governance {
     
         if (m.proposalType == ManageProposalType.MintTokens) {
             require(m.amount > 0, "Invalid mint amount");
-            INewToken(_contractAddress).mint(m.to, m.amount);
+            INewToken(m.contractAddress).mint(m.targetAddress, m.amount);
         } else if (m.proposalType == ManageProposalType.UpdateTreasury) {
-            require(m.treasuryAddress != address(0), "Invalid treasury address");
-            INewToken(_contractAddress).updateTreasury(m.treasuryAddress);
+            require(m.targetAddress != address(0), "Invalid treasury address");
+            INewToken(m.contractAddress).updateTreasury(m.targetAddress);
         } else if (m.proposalType == ManageProposalType.DisableMint) {
-            INewToken(_contractAddress).disableMinting();
+            INewToken(m.contractAddress).disableMinting();
         }
         m.executed = true;
     }
