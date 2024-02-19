@@ -84,7 +84,7 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         feeRecipient.transfer(msg.value);
 
         uint256 supplyWithDecimals = maximumSupply * (10 ** uint256(decimals));
-        NewToken mintToken = new NewToken(
+        SC20Token mintToken = new SC20Token(
             name,
             symbol,
             supplyWithDecimals,
@@ -111,8 +111,8 @@ contract TokenFactory is Ownable, ReentrancyGuard {
 
 }
 
-// NewToken extends the ERC20 implementation from OpenZeppelin and adds a burn function.
-contract NewToken is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
+// SC20Token extends the ERC20 implementation from OpenZeppelin and adds a burn function.
+contract SC20Token is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
 
     uint256 private _maximumSupply;
     uint8 private _customDecimals;
