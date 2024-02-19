@@ -30,17 +30,31 @@ interface INewToken {
 }
 
 interface IERC20 {
+    function totalSupply() external view returns (uint256);
     function balanceOf(address account) external view returns (uint256);
+    function transfer(address recipient, uint256 amount) external returns (bool);
+    function allowance(address owner, address spender) external view returns (uint256);
+    function approve(address spender, uint256 amount) external returns (bool);
+    function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
+
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+}
+
+interface IBurnableToken is IERC20 {
+    function burn(uint256 amount) external;
 }
 
 contract Governance {
     address public stakingContractAddress;
     address public tokenFactoryAddress;
     address public owner;
-    IERC20 public votingToken;
+    IBurnableToken public votingToken;
     bool private votingTokenSet;
     uint256 public minimumQuorum;
     uint256 public votingPeriod;
+    uint256 public maxVotingPowerPercentage;
+    uint256 public proposalCreationThreshold;
     uint256 public nextProposalId;
 
     enum ProposalType { 
@@ -68,41 +82,36 @@ contract Governance {
     }
 
     mapping(uint256 => Proposal) private proposals;
+    
     event VotingTokenUpdated(address indexed newVotingToken);
-    event ProposalCreated(
-        uint256 indexed proposalId, 
-        ProposalType proposalType, 
-        address indexed createdBy
-        );
-    event VoteCast(
-        address indexed voter, 
-        uint256 indexed proposalId, 
-        bool voteYes, 
-        uint256 votingPower,
-        uint256 voteCountYes,
-        uint256 voteCountNo
-        );
-    event ProposalExecuted(
-        uint256 indexed proposalId, 
-        ProposalType proposalType, 
-        address indexed executedBy
-        );
+    event ProposalCreated(uint256 indexed proposalId, ProposalType proposalType, address indexed createdBy);
+    event VoteCast(address indexed voter, uint256 indexed proposalId, bool voteYes, uint256 votingPower, uint256 voteCountYes, uint256 voteCountNo);
+    event ProposalExecuted(uint256 indexed proposalId, ProposalType proposalType, address indexed executedBy);
+    event MaxVotingPowerPercentageUpdated(uint256 newMaxVotingPowerPercentage);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Not owner");
         _;
     }
 
-    constructor(address _tokenFactoryAddress, uint256 _minimumQuorum, uint256 _votingPeriod) {
-        tokenFactoryAddress = _tokenFactoryAddress;
+    constructor(
+        address _tokenFactoryAddress, 
+        uint256 _minimumQuorum, 
+        uint256 _votingPeriod, 
+        uint256 _maxVotingPowerPercentage, 
+        uint256 _proposalCreationThreshold
+        ) {
         owner = msg.sender;
+        tokenFactoryAddress = _tokenFactoryAddress;
         minimumQuorum = _minimumQuorum;
         votingPeriod = _votingPeriod;
+        maxVotingPowerPercentage = _maxVotingPowerPercentage;
+        proposalCreationThreshold = _proposalCreationThreshold;
     }
 
     function setVotingToken(address _votingToken) public onlyOwner {
         require(!votingTokenSet, "Voting token already set");
-        votingToken = IERC20(_votingToken);
+        votingToken = IBurnableToken(_votingToken);
         votingTokenSet = true;
         emit VotingTokenUpdated(_votingToken);
     }
@@ -117,6 +126,10 @@ contract Governance {
         uint256 _numericValue, 
         address _addrValue
     ) public {
+        require(votingToken.balanceOf(msg.sender) >= proposalCreationThreshold, "Insufficient balance to create proposal");
+        votingToken.transferFrom(msg.sender, address(this), proposalCreationThreshold);
+        burnTokens(proposalCreationThreshold);
+
         uint256 newProposalId = nextProposalId++;
         Proposal storage p = proposals[newProposalId];
         p.id = newProposalId;
@@ -131,7 +144,14 @@ contract Governance {
         emit ProposalCreated(newProposalId, _type, msg.sender);
     }
 
-    
+    function burnTokens(uint256 _amount) private {
+        IBurnableToken(address(votingToken)).burn(_amount);
+    }
+
+    function vote(uint256 _proposalId, bool _voteYes) public {
+        _castVote(_proposalId, _voteYes);
+    }
+
     function _castVote(uint256 _proposalId, bool _voteYes) private {
         require(votingTokenSet, "Voting token not set");
         IStakingContract stakingContract = IStakingContract(stakingContractAddress);
@@ -144,18 +164,18 @@ contract Governance {
 
         uint256 totalStaked = stakingContract.totalStaked();
         uint256 votingPower = (voterStake * 100) / totalStaked;
+        uint256 maxVotingPower = (totalStaked * maxVotingPowerPercentage) / 100;
+        if (voterStake > maxVotingPower) {
+            votingPower = (maxVotingPower * 100) / totalStaked;
+        }
         p.votingState.voted[msg.sender] = true;
         if (_voteYes) {
             p.votingState.voteCountYes += votingPower;
         } else {
             p.votingState.voteCountNo += votingPower;
         }
-
+        
         emit VoteCast(msg.sender, _proposalId, _voteYes, votingPower, p.votingState.voteCountYes, p.votingState.voteCountNo);
-    }
-
-    function vote(uint256 _proposalId, bool _voteYes) public {
-        _castVote(_proposalId, _voteYes);
     }
 
     function executeProposal(uint256 _proposalId) public {
@@ -216,8 +236,15 @@ contract Governance {
         }
     }
 
+    function updateMaxVotingPowerPercentage(uint256 _newMaxVotingPowerPercentage) public onlyOwner {
+        require(_newMaxVotingPowerPercentage >= 3 && _newMaxVotingPowerPercentage <= 8, "Invalid max voting power percentage");
+        maxVotingPowerPercentage = _newMaxVotingPowerPercentage;
+        emit MaxVotingPowerPercentageUpdated(_newMaxVotingPowerPercentage);
+    }
+
     function getProposal(uint256 _proposalId) public view returns (ProposalType, address, uint256, address, bool, uint256, uint256) {
         Proposal storage p = proposals[_proposalId];
         return (p.proposalType, p.targetContract, p.numericValue, p.addrValue, p.executed, p.startTime, p.endTime);
     }
+
 }
