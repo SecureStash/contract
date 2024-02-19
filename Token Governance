@@ -90,9 +90,10 @@ contract Governance {
     event MaxVotingPowerPercentageUpdated(uint256 newMaxVotingPowerPercentage);
     event StakingContractUpdated(address indexed newStakingContract);
     event ProposalCreationThresholdUpdated(uint256 newThreshold);
+    event TokenFactoryAddressUpdated(address newAddress);
 
     modifier onlyOwner() {
-        require(msg.sender == owner, "Not owner");
+        require(msg.sender == owner, "YOU_ARE_NOT_AUTHORIZED");
         _;
     }
 
@@ -109,6 +110,12 @@ contract Governance {
         votingPeriod = _votingPeriod;
         maxVotingPowerPercentage = _maxVotingPowerPercentage;
         proposalCreationThreshold = _proposalCreationThreshold;
+    }
+
+    function updateTokenFactoryAddress(address _newAddress) internal {
+        require(_newAddress != address(0), "Invalid address");
+        tokenFactoryAddress = _newAddress;
+        emit TokenFactoryAddressUpdated(_newAddress);
     }
 
     function setVotingToken(address _votingToken) public onlyOwner {
@@ -206,11 +213,11 @@ contract Governance {
         } else if (p.proposalType == ProposalType.UpdateFeeRecipient) {
             ITokenFactory(tokenFactoryAddress).updateFeeRecipient(payable(p.addrValue));
         } else if (p.proposalType == ProposalType.UpdateGovernanceContract) {
-            require(p.addrValue != address(0), "Invalid address");
             ITokenFactory(tokenFactoryAddress).updateGovContract(p.addrValue);
         } else if (p.proposalType == ProposalType.UpdateTokenFactoryAddress) {
-            require(p.addrValue != address(0), "Invalid address");
+            require(p.addrValue != address(0), "INVALID_ADDRESS");
             tokenFactoryAddress = p.addrValue;
+            emit TokenFactoryAddressUpdated(p.addrValue);
         } else {
             INewToken targetContract = INewToken(p.targetContract);
             executeTokenRelatedProposal(p, targetContract);
@@ -241,10 +248,10 @@ contract Governance {
         } else if (p.proposalType == ProposalType.UpdateBurnTax) {
             targetContract.modifyBurnTax(p.numericValue);
         } else if (p.proposalType == ProposalType.MintTokens) {
-            require(p.numericValue > 0, "Invalid mint amount");
+            require(p.numericValue > 0, "INVALID_MINT_AMOUNT");
+            require(p.addrValue != address(0), "INVALID_ADDRESS");
             targetContract.mint(p.addrValue, p.numericValue);
         } else if (p.proposalType == ProposalType.UpdateTreasury) {
-            require(p.addrValue != address(0), "Invalid treasury address");
             targetContract.updateTreasury(p.addrValue);
         } else if (p.proposalType == ProposalType.DisableMint) {
             targetContract.disableMinting();
