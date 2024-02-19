@@ -41,11 +41,13 @@ contract Governance {
     bool private votingTokenSet;
     uint256 public minimumQuorum;
     uint256 public votingPeriod;
-    
-    enum ProposalType { UpdateCreationFee, UpdateFeeRecipient, UpdateGovernanceContract, UpdateTokenFactoryAddress }
-    enum ProposalType2 { RemoveLockedTokenContract, RemoveVestedTokenContract, RemoveStakingTokenContract, RemoveLiquidityPool }
-    enum TaxProposalType { UpdateBuyTax, UpdateSellTax, UpdateBurnTax }
-    enum ManageProposalType { MintTokens, UpdateTreasury, DisableMint }
+    uint256 public nextProposalId;
+
+    enum ProposalType { 
+        UpdateCreationFee, UpdateFeeRecipient, UpdateGovernanceContract, UpdateTokenFactoryAddress,
+        RemoveLockedTokenContract, RemoveVestedTokenContract, RemoveStakingTokenContract, RemoveLiquidityPool,
+        UpdateBuyTax, UpdateSellTax, UpdateBurnTax, MintTokens, UpdateTreasury, DisableMint
+    }
 
     struct VotingState {
         uint256 voteCountYes;
@@ -56,123 +58,39 @@ contract Governance {
     struct Proposal {
         uint256 id;
         ProposalType proposalType;
-        uint256 newFee;
-        address newFeeRecipient;
-        address newTokenFactoryAddress;
-        address newGovernanceContractAddress;
+        address targetContract;
+        uint256 numericValue;
+        address addrValue;
         bool executed;
         uint256 startTime;
         uint256 endTime;
         VotingState votingState;
     }
 
-    struct Proposal2 {
-        uint256 id;
-        ProposalType2 proposalType;
-        address contractAddress;
-        address removeAddress;
-        bool executed;
-        uint256 startTime;
-        uint256 endTime;
-        VotingState votingState;
-    }
-
-    struct ModifyTax {
-        uint256 id;
-        TaxProposalType proposalType;
-        address contractAddress;
-        uint256 newTaxRate;
-        bool executed;
-        uint256 startTime;
-        uint256 endTime;
-        VotingState votingState;
-    }
-
-    struct ManageTokens {
-        uint256 id;
-        ManageProposalType proposalType;
-        address contractAddress;
-        address targetAddress;
-        uint256 amount;
-        bool executed;
-        uint256 startTime;
-        uint256 endTime;
-        VotingState votingState;
-    }
-    
-    uint256 public nextProposalId;
     mapping(uint256 => Proposal) private proposals;
-    mapping(uint256 => Proposal2) private proposal2s;
-    mapping(uint256 => ModifyTax) private modifyTax;
-    mapping(uint256 => ManageTokens) private manageTokensProposals;
-
     event VotingTokenUpdated(address indexed newVotingToken);
-    event FactoryProposalCreated(
-        uint256 indexed proposalId,
-        ProposalType proposalType,
-        uint256 newFee,
-        address newAddress,
+    event ProposalCreated(
+        uint256 indexed proposalId, 
+        ProposalType proposalType, 
         address indexed createdBy
-    );
-    event RemoveContractProposalCreated(
-        uint256 indexed proposalId,
-        ProposalType2 proposalType,
-        address indexed contractAddress,
-        address removeAddress,
-        address indexed createdBy
-    );
-    event TaxProposalCreated(
-        uint256 indexed proposalId,
-        TaxProposalType proposalType,
-        uint256 newTaxRate,
-        address indexed contractAddress,
-        address indexed createdBy
-    );
-    event ManageTokensProposalCreated(
-        uint256 indexed proposalId,
-        ManageProposalType proposalType,
-        address indexed contractAddress,
-        address targetAddress,
-        uint256 amount,
-        address indexed createdBy
-    );
+        );
     event VoteCast(
-        address indexed voter,
-        uint256 indexed proposalId,
-        bool voteYes,
-        uint256 votingPower
-    );
-    event FactoryProposalExecuted(
-        uint256 indexed proposalId,
-        ProposalType proposalType,
+        address indexed voter, 
+        uint256 indexed proposalId, 
+        bool voteYes, 
+        uint256 votingPower,
+        uint256 voteCountYes,
+        uint256 voteCountNo
+        );
+    event ProposalExecuted(
+        uint256 indexed proposalId, 
+        ProposalType proposalType, 
         address indexed executedBy
-    );
-    event RemoveContractExecuted(
-        uint256 indexed proposalId,
-        ProposalType2 proposalType,
-        address indexed contractAddress,
-        address removeAddress,
-        address indexed executedBy
-    );
-    event TaxChangeExecuted(
-        uint256 indexed proposalId,
-        TaxProposalType proposalType,
-        uint256 newTaxRate,
-        address indexed contractAddress,
-        address indexed executedBy
-    );
-    event ManageTokensProposalExecuted(
-        uint256 indexed proposalId,
-        ManageProposalType proposalType,
-        uint256 amount,
-        address contractAddress,
-        address targetAddress,
-        address indexed executedBy
-    );
+        );
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Not owner");
-        _; 
+        _;
     }
 
     constructor(address _tokenFactoryAddress, uint256 _minimumQuorum, uint256 _votingPeriod) {
@@ -193,254 +111,113 @@ contract Governance {
         stakingContractAddress = _stakingContract;
     }
 
-    function createFactoryProposal(ProposalType _type, uint256 _newFee, address _newAddress) public onlyOwner {
+    function createProposal(
+        ProposalType _type, 
+        address _targetContract, 
+        uint256 _numericValue, 
+        address _addrValue
+    ) public {
         uint256 newProposalId = nextProposalId++;
         Proposal storage p = proposals[newProposalId];
         p.id = newProposalId;
         p.proposalType = _type;
-
-    if (_type == ProposalType.UpdateCreationFee) {
-        p.newFee = _newFee;
-        } else if (_type == ProposalType.UpdateFeeRecipient) {
-            p.newFeeRecipient = _newAddress;
-        } else if (_type == ProposalType.UpdateGovernanceContract) {
-            p.newGovernanceContractAddress = _newAddress;
-        } else if (_type == ProposalType.UpdateTokenFactoryAddress) {
-            p.newTokenFactoryAddress = _newAddress;
-        }
-
+        p.targetContract = _targetContract;
+        p.numericValue = _numericValue;
+        p.addrValue = _addrValue;
         p.startTime = block.timestamp;
         p.endTime = p.startTime + votingPeriod;
         p.executed = false;
-        emit FactoryProposalCreated(
-            newProposalId,
-            _type,
-            _newFee,
-            _newAddress,
-            msg.sender
-        );
+
+        emit ProposalCreated(newProposalId, _type, msg.sender);
     }
+
     
-    function removeContractProposal(ProposalType2 _type, address _contractAddress, address _removeAddress) public onlyOwner {
-        uint256 newProposalId = nextProposalId++;
-        Proposal2 storage p2 = proposal2s[newProposalId];
-        p2.id = newProposalId;
-        p2.proposalType = _type;
-        p2.contractAddress = _contractAddress;
-        p2.removeAddress = _removeAddress;
-        p2.startTime = block.timestamp;
-        p2.endTime = p2.startTime + votingPeriod;
-        p2.executed = false;
-
-        emit RemoveContractProposalCreated(
-            newProposalId,
-            _type,
-            _contractAddress,
-            _removeAddress,
-            msg.sender
-        );
-    }
-
-    function modifyTaxProposal (TaxProposalType _type, address _contractAddress, uint256 _newTaxRate) public onlyOwner {
-        uint256 newProposalId = nextProposalId++;
-        ModifyTax storage t = modifyTax[newProposalId];
-        t.id = newProposalId;
-        t.proposalType = _type;
-        t.contractAddress = _contractAddress;
-        t.newTaxRate = _newTaxRate;
-        t.startTime = block.timestamp;
-        t.endTime = t.startTime + votingPeriod;
-        t.executed = false;
-
-        emit TaxProposalCreated(
-            newProposalId,
-            _type,
-            _newTaxRate,
-            _contractAddress,
-            msg.sender
-        );
-    }
-
-    function createManageTokensProposal (ManageProposalType _type, address _contractAddress, address _targetAddress, uint256 _amount) public onlyOwner {
-        uint256 newProposalId = nextProposalId++;
-        ManageTokens storage m = manageTokensProposals[newProposalId];
-        m.id = newProposalId;
-        m.proposalType = _type;
-        m.contractAddress = _contractAddress;
-        m.targetAddress = _targetAddress;
-    
-        if (_type == ManageProposalType.MintTokens) {
-            m.amount = _amount;
-        } else {
-            // For UpdateTreasury and DisableMint, _amount is not used.
-            m.amount = 0;
-        }
-        
-        m.startTime = block.timestamp;
-        m.endTime = m.startTime + votingPeriod;
-        m.executed = false;
-
-        emit ManageTokensProposalCreated(
-            newProposalId,
-            _type,
-            _contractAddress,
-            _targetAddress,
-            _amount,
-            msg.sender
-        );
-    }
-
-    // Private function to abstract the common voting logic
-    function _castVote(uint256 _proposalId, bool _voteYes, VotingState storage votingState) private {
+    function _castVote(uint256 _proposalId, bool _voteYes) private {
         require(votingTokenSet, "Voting token not set");
         IStakingContract stakingContract = IStakingContract(stakingContractAddress);
         uint256 voterStake = stakingContract.balanceOf(msg.sender);
         require(voterStake > 0, "Not a staked token holder");
-        require(!votingState.voted[msg.sender], "Already voted");
+        Proposal storage p = proposals[_proposalId];
+        require(!p.votingState.voted[msg.sender], "Already voted");
+        require(!p.executed, "Proposal already executed");
+        require(block.timestamp >= p.startTime && block.timestamp <= p.endTime, "Voting period is over");
 
         uint256 totalStaked = stakingContract.totalStaked();
         uint256 votingPower = (voterStake * 100) / totalStaked;
-
-        votingState.voted[msg.sender] = true;
+        p.votingState.voted[msg.sender] = true;
         if (_voteYes) {
-            votingState.voteCountYes += votingPower;
+            p.votingState.voteCountYes += votingPower;
         } else {
-            votingState.voteCountNo += votingPower;
+            p.votingState.voteCountNo += votingPower;
         }
 
-        emit VoteCast(msg.sender, _proposalId, _voteYes, votingPower);
+        emit VoteCast(msg.sender, _proposalId, _voteYes, votingPower, p.votingState.voteCountYes, p.votingState.voteCountNo);
     }
 
-    function voteFactory (uint256 _proposalId, bool _voteYes) public {
+    function vote(uint256 _proposalId, bool _voteYes) public {
+        _castVote(_proposalId, _voteYes);
+    }
+
+    function executeProposal(uint256 _proposalId) public {
         Proposal storage p = proposals[_proposalId];
         require(!p.executed, "Proposal already executed");
-        require(block.timestamp >= p.startTime && block.timestamp <= p.endTime, "Voting period is over");
-        _castVote(_proposalId, _voteYes, p.votingState);
-    }
-
-    function voteRemoveContract (uint256 _proposalId, bool _voteYes) public {
-        Proposal2 storage p2 = proposal2s[_proposalId];
-        require(!p2.executed, "Proposal already executed");
-        require(block.timestamp >= p2.startTime && block.timestamp <= p2.endTime, "Voting period is over");
-        _castVote(_proposalId, _voteYes, p2.votingState);
-    }
-    
-    function voteModifyTax (uint256 _proposalId, bool _voteYes) public {
-        ModifyTax storage t = modifyTax[_proposalId];
-        require(!t.executed, "Proposal already executed");
-        //require(!t.voted[msg.sender], "Already voted");
-        require(block.timestamp >= t.startTime && block.timestamp <= t.endTime, "Voting period is over");
-        _castVote(_proposalId, _voteYes, t.votingState);
-    }
-
-    function voteManageTokens (uint256 _proposalId, bool _voteYes) public {
-        ManageTokens storage m = manageTokensProposals[_proposalId];
-        require(!m.executed, "Proposal already executed");
-        //require(!m.voted[msg.sender], "Already voted");
-        require(block.timestamp >= m.startTime && block.timestamp <= m.endTime, "Voting period is over");
-        _castVote(_proposalId, _voteYes, m.votingState);
-    }
-
-    function executeFactoryProposal(uint256 _proposalId) public {
-        Proposal storage p = proposals[_proposalId];
-        require(!p.executed, "Proposal already executed");
+        require(block.timestamp > p.endTime, "Voting period not over yet");
         require(p.votingState.voteCountYes > p.votingState.voteCountNo, "Proposal did not pass");
         require(p.votingState.voteCountYes >= minimumQuorum, "Not enough votes");
 
+        // Execute proposal based on type
         if (p.proposalType == ProposalType.UpdateCreationFee) {
-            ITokenFactory(tokenFactoryAddress).updateCreationFee(p.newFee);
-            } else if (p.proposalType == ProposalType.UpdateFeeRecipient) {
-                ITokenFactory(tokenFactoryAddress).updateFeeRecipient(payable(p.newFeeRecipient));
-            } else if (p.proposalType == ProposalType.UpdateGovernanceContract) {
-                require(p.newGovernanceContractAddress != address(0), "Invalid address");    
-                ITokenFactory(tokenFactoryAddress).updateGovContract(p.newGovernanceContractAddress);
-            } else if (p.proposalType == ProposalType.UpdateTokenFactoryAddress) {
-                require(p.newTokenFactoryAddress != address(0), "Invalid address");
-                tokenFactoryAddress = p.newTokenFactoryAddress;
-            } 
-            p.executed = true;
-            emit FactoryProposalExecuted(_proposalId, p.proposalType, msg.sender);
+            ITokenFactory(tokenFactoryAddress).updateCreationFee(p.numericValue);
+        } else if (p.proposalType == ProposalType.UpdateFeeRecipient) {
+            ITokenFactory(tokenFactoryAddress).updateFeeRecipient(payable(p.addrValue));
+        } else if (p.proposalType == ProposalType.UpdateGovernanceContract) {
+            require(p.addrValue != address(0), "Invalid address");
+            ITokenFactory(tokenFactoryAddress).updateGovContract(p.addrValue);
+        } else if (p.proposalType == ProposalType.UpdateTokenFactoryAddress) {
+            require(p.addrValue != address(0), "Invalid address");
+            tokenFactoryAddress = p.addrValue;
+        } else {
+            INewToken targetContract = INewToken(p.targetContract);
+            executeTokenRelatedProposal(p, targetContract);
         }
+
+        p.executed = true;
+        emit ProposalExecuted(_proposalId, p.proposalType, msg.sender);
+    }
+
+    function executeTokenRelatedProposal(Proposal storage p, INewToken targetContract) internal {
         
-        function executeRemoveContract (uint256 _proposalId) public {
-            Proposal2 storage p2 = proposal2s[_proposalId];
-            require(!p2.executed, "Proposal already executed");
-            require(p2.votingState.voteCountYes > p2.votingState.voteCountNo, "Proposal did not pass");
-            require(p2.votingState.voteCountYes >= minimumQuorum, "Not enough votes");
-    
-            INewToken targetContract = INewToken(p2.contractAddress);
-
-        if (p2.proposalType == ProposalType2.RemoveLockedTokenContract) {
-            require(targetContract.isLockedTokenContract(p2.removeAddress), "Address not found in locked contracts");
-            targetContract.removeLockedTokenContract(p2.removeAddress);
-            } else if (p2.proposalType == ProposalType2.RemoveVestedTokenContract) {
-                require(targetContract.isVestedTokenContract(p2.removeAddress), "Address not found in vested contracts");
-                targetContract.removeVestedTokenContract(p2.removeAddress);
-            } else if (p2.proposalType == ProposalType2.RemoveStakingTokenContract) {
-                require(targetContract.isStakingTokenContract(p2.removeAddress), "Address not found in staking contracts");
-                targetContract.removeStakingTokenContract(p2.removeAddress);
-            } else if (p2.proposalType == ProposalType2.RemoveLiquidityPool) {
-                require(targetContract.isLiquidityPoolAddress(p2.removeAddress), "Address not found in liquidity pools");
-                targetContract.removeLiquidityPool(p2.removeAddress);
-            }
-        p2.executed = true;
-        emit RemoveContractExecuted(
-            _proposalId,
-            p2.proposalType,
-            p2.contractAddress,
-            p2.removeAddress,
-            msg.sender
-        );
-    }
-
-    function executeTaxChange (uint256 _proposalId) public {
-        ModifyTax storage t = modifyTax[_proposalId];
-        require(!t.executed, "Proposal already executed");
-        require(t.votingState.voteCountYes > t.votingState.voteCountNo, "Proposal did not pass");
-        require(t.votingState.voteCountYes >= minimumQuorum, "Not enough votes");
-            
-        address contractAddress = t.contractAddress;
-    
-        if (t.proposalType == TaxProposalType.UpdateBuyTax) {
-            INewToken(contractAddress).modifyBuyTax(t.newTaxRate);
-            } else if (t.proposalType == TaxProposalType.UpdateSellTax) {
-                INewToken(contractAddress).modifySellTax(t.newTaxRate);
-            } else if (t.proposalType == TaxProposalType.UpdateBurnTax) {
-                INewToken(contractAddress).modifyBurnTax(t.newTaxRate);
-            }
-        t.executed = true;
-        emit TaxChangeExecuted(
-            _proposalId,
-            t.proposalType,
-            t.newTaxRate,
-            contractAddress,
-            msg.sender
-        );
-    }
-
-    function executeManageTokensProposal(uint256 _proposalId) public {
-        ManageTokens storage m = manageTokensProposals[_proposalId];
-        require(!m.executed, "Proposal already executed");
-        require(m.votingState.voteCountYes > m.votingState.voteCountNo, "Proposal did not pass");
-        require(m.votingState.voteCountYes >= minimumQuorum, "Not enough votes");
-    
-        if (m.proposalType == ManageProposalType.MintTokens) {
-            require(m.amount > 0, "Invalid mint amount");
-            INewToken(m.contractAddress).mint(m.targetAddress, m.amount);
-        } else if (m.proposalType == ManageProposalType.UpdateTreasury) {
-            require(m.targetAddress != address(0), "Invalid treasury address");
-            INewToken(m.contractAddress).updateTreasury(m.targetAddress);
-        } else if (m.proposalType == ManageProposalType.DisableMint) {
-            INewToken(m.contractAddress).disableMinting();
+        if (p.proposalType == ProposalType.RemoveLockedTokenContract) {
+            require(targetContract.isLockedTokenContract(p.addrValue), "Address not found in locked contracts");
+            targetContract.removeLockedTokenContract(p.addrValue);
+        } else if (p.proposalType == ProposalType.RemoveVestedTokenContract) {
+            require(targetContract.isVestedTokenContract(p.addrValue), "Address not found in vested contracts");
+            targetContract.removeVestedTokenContract(p.addrValue);
+        } else if (p.proposalType == ProposalType.RemoveStakingTokenContract) {
+            require(targetContract.isStakingTokenContract(p.addrValue), "Address not found in staking contracts");
+            targetContract.removeStakingTokenContract(p.addrValue);
+        } else if (p.proposalType == ProposalType.RemoveLiquidityPool) {
+            require(targetContract.isLiquidityPoolAddress(p.addrValue), "Address not found in liquidity pools");
+            targetContract.removeLiquidityPool(p.addrValue);
+        } else if (p.proposalType == ProposalType.UpdateBuyTax) {
+            targetContract.modifyBuyTax(p.numericValue);
+        } else if (p.proposalType == ProposalType.UpdateSellTax) {
+            targetContract.modifySellTax(p.numericValue);
+        } else if (p.proposalType == ProposalType.UpdateBurnTax) {
+            targetContract.modifyBurnTax(p.numericValue);
+        } else if (p.proposalType == ProposalType.MintTokens) {
+            require(p.numericValue > 0, "Invalid mint amount");
+            targetContract.mint(p.addrValue, p.numericValue);
+        } else if (p.proposalType == ProposalType.UpdateTreasury) {
+            require(p.addrValue != address(0), "Invalid treasury address");
+            targetContract.updateTreasury(p.addrValue);
+        } else if (p.proposalType == ProposalType.DisableMint) {
+            targetContract.disableMinting();
         }
-        m.executed = true;
-        emit ManageTokensProposalExecuted(
-            _proposalId,
-            m.proposalType,
-            m.amount,
-            m.contractAddress,
-            m.targetAddress,
-            msg.sender
-        );
+    }
+
+    function getProposal(uint256 _proposalId) public view returns (ProposalType, address, uint256, address, bool, uint256, uint256) {
+        Proposal storage p = proposals[_proposalId];
+        return (p.proposalType, p.targetContract, p.numericValue, p.addrValue, p.executed, p.startTime, p.endTime);
     }
 }
