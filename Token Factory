@@ -9,7 +9,7 @@ interface IVestedTokenContract {
     function balanceOf(address _account) external view returns (uint256);
 }
 
-interface IStakingTokenContract {
+interface IStakingContract {
     function balanceOf(address _account) external view returns (uint256);
 }
 
@@ -50,16 +50,16 @@ contract TokenFactory is Ownable, ReentrancyGuard {
         _;
     }
 
-    function updateCreationFee(uint256 _newFee) public onlyGovernance {
+    function updateCreationFee(uint256 _newFee) external onlyGovernance {
         creationFee = _newFee;
     }
 
-    function updateFeeRecipient(address payable _newRecipient) public onlyGovernance {
+    function updateFeeRecipient(address payable _newRecipient) external onlyGovernance {
         require(_newRecipient != address(0), "INVALID_RECIPIENT");
         feeRecipient = _newRecipient;
     }
 
-    function updateGovContract(address _newContract) public onlyGovernance {
+    function updateGovContract(address _newContract) external onlyGovernance {
         require(_newContract != address(0), "INVALID_RECIPIENT");
         governanceContract = _newContract;
     }
@@ -208,7 +208,7 @@ contract SC20Token is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     }
 
     // Function to remove a locked token contract address
-    function removeLockedTokenContract(address _address) public onlyGovernance {
+    function removeLockedTokenContract(address _address) external onlyGovernance {
         int index = _findIndex(lockedTokenContracts, _address);
         require(index != -1, "ADDRESS_NOT_FOUND");
         _removeAtIndex(lockedTokenContracts, uint(index));
@@ -225,7 +225,7 @@ contract SC20Token is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     }
 
     // Remove a vested token contract address
-    function removeVestedTokenContract(address _address) public onlyGovernance {
+    function removeVestedTokenContract(address _address) external onlyGovernance {
         int index = _findIndex(vestedTokenContracts, _address);
         require(index != -1, "ADDRESS_NOT_FOUND");
         _removeAtIndex(vestedTokenContracts, uint(index));
@@ -243,7 +243,7 @@ contract SC20Token is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
     }
 
     // Remove a staking token contract address
-    function removeStakingTokenContract(address _address) public onlyGovernance {
+    function removeStakingTokenContract(address _address) external onlyGovernance {
         int index = _findIndex(stakingTokenContracts, _address);
         require(index != -1, "ADDRESS_NOT_FOUND");
         _removeAtIndex(stakingTokenContracts, uint(index));
@@ -267,25 +267,25 @@ contract SC20Token is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
         array.pop();
     }
     
-    function modifyBuyTax(uint256 _newTaxPercent) public onlyGovernance {
+    function modifyBuyTax(uint256 _newTaxPercent) external onlyGovernance {
         require(_newTaxPercent <= 20, "NEW TAX SHOULD BE <= 20%");
         buyTax = _newTaxPercent;
         emit BuyTaxUpdated(_newTaxPercent);
     }
 
-    function modifySellTax(uint256 _newTaxPercent) public onlyGovernance {
+    function modifySellTax(uint256 _newTaxPercent) external onlyGovernance {
         require(_newTaxPercent <= 20, "NEW TAX SHOULD BE <= 20%");
         sellTax = _newTaxPercent;
         emit SellTaxUpdated(_newTaxPercent);
     }
 
-    function modifyBurnTax(uint256 _newTaxPercent) public onlyGovernance {
+    function modifyBurnTax(uint256 _newTaxPercent) external onlyGovernance {
         require(_newTaxPercent <= 20, "NEW TAX SHOULD BE <= 20%");
         burnTax = _newTaxPercent;
         emit BurnTaxUpdated(_newTaxPercent);
     }
 
-    function updateTreasury(address _treasury) public onlyGovernance {
+    function updateTreasury(address _treasury) external onlyGovernance {
         require(_treasury != address(0), "INVALID_TREASURY");
         treasury = _treasury;
         emit TreasuryUpdate(_treasury);
@@ -297,19 +297,19 @@ contract SC20Token is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
         emit LiquidityPoolAdded(_pool);
     }
 
-    function removeLiquidityPool(address _pool) public onlyGovernance {
+    function removeLiquidityPool(address _pool) external onlyGovernance {
         isLiquidityPool[_pool] = false;
         emit LiquidityPoolRemoved(_pool);
     }
     
-    function mint(address _to, uint256 _amount) public onlyGovernance nonReentrant {
+    function mint(address _to, uint256 _amount) external onlyGovernance nonReentrant {
         require(_mintingEnabled, "MINTING_DISABLED");
         require(totalSupply() + _amount <= _maximumSupply, "CANNOT EXCEED MAXIMUM SUPPLY");
         _mint(_to, _amount);
         emit TokenMinted(_to, _amount);
     }
 
-    function disableMinting() public onlyGovernance {
+    function disableMinting() external onlyGovernance {
         _mintingEnabled = false;
         emit MintingDisabled();
     }
