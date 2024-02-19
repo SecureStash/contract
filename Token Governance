@@ -88,6 +88,8 @@ contract Governance {
     event VoteCast(address indexed voter, uint256 indexed proposalId, bool voteYes, uint256 votingPower, uint256 voteCountYes, uint256 voteCountNo);
     event ProposalExecuted(uint256 indexed proposalId, ProposalType proposalType, address indexed executedBy);
     event MaxVotingPowerPercentageUpdated(uint256 newMaxVotingPowerPercentage);
+    event StakingContractUpdated(address indexed newStakingContract);
+    event ProposalCreationThresholdUpdated(uint256 newThreshold);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Not owner");
@@ -118,6 +120,19 @@ contract Governance {
 
     function setStakingContract(address _stakingContract) public onlyOwner {
         stakingContractAddress = _stakingContract;
+        emit StakingContractUpdated(_stakingContract);
+    }
+
+    function updateMaxVotingPowerPercentage(uint256 _newMaxVotingPowerPercentage) public onlyOwner {
+        require(_newMaxVotingPowerPercentage >= 3 && _newMaxVotingPowerPercentage <= 8, "Invalid max voting power percentage");
+        maxVotingPowerPercentage = _newMaxVotingPowerPercentage;
+        emit MaxVotingPowerPercentageUpdated(_newMaxVotingPowerPercentage);
+    }
+
+    function updateProposalCreationThreshold(uint256 _newThreshold) public onlyOwner {
+        require(_newThreshold >= 10 && _newThreshold <= 100, "NOT_IN_RANGE");
+        proposalCreationThreshold = _newThreshold;
+        emit ProposalCreationThresholdUpdated(_newThreshold);
     }
 
     function createProposal(
@@ -234,12 +249,6 @@ contract Governance {
         } else if (p.proposalType == ProposalType.DisableMint) {
             targetContract.disableMinting();
         }
-    }
-
-    function updateMaxVotingPowerPercentage(uint256 _newMaxVotingPowerPercentage) public onlyOwner {
-        require(_newMaxVotingPowerPercentage >= 3 && _newMaxVotingPowerPercentage <= 8, "Invalid max voting power percentage");
-        maxVotingPowerPercentage = _newMaxVotingPowerPercentage;
-        emit MaxVotingPowerPercentageUpdated(_newMaxVotingPowerPercentage);
     }
 
     function getProposal(uint256 _proposalId) public view returns (ProposalType, address, uint256, address, bool, uint256, uint256) {
