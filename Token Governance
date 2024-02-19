@@ -12,7 +12,7 @@ interface ITokenFactory {
     function updateGovContract(address _newContract) external;
 }
 
-interface INewToken {
+interface ISC20Token {
     function removeLockedTokenContract(address _address) external;
     function removeVestedTokenContract(address _address) external;
     function removeStakingTokenContract(address _address) external;
@@ -229,7 +229,7 @@ contract Governance is ReentrancyGuard {
             require(p.addrValue != address(0), "INVALID_ADDRESS");
             updateVotingToken(p.addrValue);
         } else {
-            INewToken targetContract = INewToken(p.targetContract);
+            ISC20Token targetContract = ISC20Token(p.targetContract);
             executeTokenRelatedProposal(p, targetContract);
         }
 
@@ -237,7 +237,7 @@ contract Governance is ReentrancyGuard {
         emit ProposalExecuted(_proposalId, p.proposalType, msg.sender);
     }
 
-    function executeTokenRelatedProposal(Proposal storage p, INewToken targetContract) internal {
+    function executeTokenRelatedProposal(Proposal storage p, ISC20Token targetContract) internal {
         
         if (p.proposalType == ProposalType.RemoveLockedTokenContract) {
             require(targetContract.isLockedTokenContract(p.addrValue), "Address not found in locked contracts");
