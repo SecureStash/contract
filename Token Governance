@@ -45,7 +45,9 @@ interface IBurnableToken is IERC20 {
     function burn(uint256 amount) external;
 }
 
-contract Governance {
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+
+contract Governance is ReentrancyGuard {
     address public stakingContractAddress;
     address public tokenFactoryAddress;
     address public owner;
@@ -58,7 +60,7 @@ contract Governance {
     uint256 public nextProposalId;
 
     enum ProposalType { 
-        UpdateCreationFee, UpdateFeeRecipient, UpdateGovernanceContract, UpdateTokenFactoryAddress,
+        UpdateCreationFee, UpdateFeeRecipient, UpdateGovernanceContract, UpdateTokenFactoryAddress, UpdateVotingToken,
         RemoveLockedTokenContract, RemoveVestedTokenContract, RemoveStakingTokenContract, RemoveLiquidityPool,
         UpdateBuyTax, UpdateSellTax, UpdateBurnTax, MintTokens, UpdateTreasury, DisableMint
     }
@@ -87,9 +89,8 @@ contract Governance {
     event ProposalCreated(uint256 indexed proposalId, ProposalType proposalType, address indexed createdBy);
     event VoteCast(address indexed voter, uint256 indexed proposalId, bool voteYes, uint256 votingPower, uint256 voteCountYes, uint256 voteCountNo);
     event ProposalExecuted(uint256 indexed proposalId, ProposalType proposalType, address indexed executedBy);
-    event MaxVotingPowerPercentageUpdated(uint256 newMaxVotingPowerPercentage);
+    event GovernanceParameterUpdated(string parameter, uint256 newValue);
     event StakingContractUpdated(address indexed newStakingContract);
-    event ProposalCreationThresholdUpdated(uint256 newThreshold);
     event TokenFactoryAddressUpdated(address newAddress);
 
     modifier onlyOwner() {
@@ -112,12 +113,6 @@ contract Governance {
         proposalCreationThreshold = _proposalCreationThreshold;
     }
 
-    function updateTokenFactoryAddress(address _newAddress) internal {
-        require(_newAddress != address(0), "Invalid address");
-        tokenFactoryAddress = _newAddress;
-        emit TokenFactoryAddressUpdated(_newAddress);
-    }
-
     function setVotingToken(address _votingToken) public onlyOwner {
         require(!votingTokenSet, "Voting token already set");
         votingToken = IBurnableToken(_votingToken);
@@ -130,16 +125,28 @@ contract Governance {
         emit StakingContractUpdated(_stakingContract);
     }
 
+    function updateMinimumQuorum(uint256 _newMinimumQuorum) public onlyOwner {
+        require(_newMinimumQuorum >= 25 && _newMinimumQuorum <= 60, "Invalid minimum quorum");
+        minimumQuorum = _newMinimumQuorum;
+        emit GovernanceParameterUpdated("minimumQuorum", _newMinimumQuorum);
+    }
+
+    function updateVotingPeriod(uint256 _newVotingPeriod) public onlyOwner {
+        require(_newVotingPeriod >= 1 && _newVotingPeriod <= 7, "Invalid voting period");
+        votingPeriod = _newVotingPeriod;
+        emit GovernanceParameterUpdated("votingPeriod", _newVotingPeriod);
+    }
+
     function updateMaxVotingPowerPercentage(uint256 _newMaxVotingPowerPercentage) public onlyOwner {
         require(_newMaxVotingPowerPercentage >= 3 && _newMaxVotingPowerPercentage <= 8, "Invalid max voting power percentage");
         maxVotingPowerPercentage = _newMaxVotingPowerPercentage;
-        emit MaxVotingPowerPercentageUpdated(_newMaxVotingPowerPercentage);
+        emit GovernanceParameterUpdated("maxVotingPowerPercentage", _newMaxVotingPowerPercentage);
     }
 
     function updateProposalCreationThreshold(uint256 _newThreshold) public onlyOwner {
         require(_newThreshold >= 10 && _newThreshold <= 100, "NOT_IN_RANGE");
         proposalCreationThreshold = _newThreshold;
-        emit ProposalCreationThresholdUpdated(_newThreshold);
+        emit GovernanceParameterUpdated("proposalCreationThreshold", _newThreshold);
     }
 
     function createProposal(
@@ -188,7 +195,7 @@ contract Governance {
         uint256 votingPower = (voterStake * 100) / totalStaked;
         uint256 maxVotingPower = (totalStaked * maxVotingPowerPercentage) / 100;
         if (voterStake > maxVotingPower) {
-            votingPower = (maxVotingPower * 100) / totalStaked;
+            votingPower = maxVotingPowerPercentage;
         }
         p.votingState.voted[msg.sender] = true;
         if (_voteYes) {
@@ -200,7 +207,7 @@ contract Governance {
         emit VoteCast(msg.sender, _proposalId, _voteYes, votingPower, p.votingState.voteCountYes, p.votingState.voteCountNo);
     }
 
-    function executeProposal(uint256 _proposalId) public {
+    function executeProposal(uint256 _proposalId) public nonReentrant {
         Proposal storage p = proposals[_proposalId];
         require(!p.executed, "Proposal already executed");
         require(block.timestamp > p.endTime, "Voting period not over yet");
@@ -218,6 +225,9 @@ contract Governance {
             require(p.addrValue != address(0), "INVALID_ADDRESS");
             tokenFactoryAddress = p.addrValue;
             emit TokenFactoryAddressUpdated(p.addrValue);
+        } else if (p.proposalType == ProposalType.UpdateVotingToken) {
+            require(p.addrValue != address(0), "INVALID_ADDRESS");
+            updateVotingToken(p.addrValue);
         } else {
             INewToken targetContract = INewToken(p.targetContract);
             executeTokenRelatedProposal(p, targetContract);
@@ -256,6 +266,20 @@ contract Governance {
         } else if (p.proposalType == ProposalType.DisableMint) {
             targetContract.disableMinting();
         }
+    }
+
+    function updateTokenFactoryAddress(address _newAddress) internal {
+        require(_newAddress != address(0), "INVALID_ADDRESS");
+        tokenFactoryAddress = _newAddress;
+        emit TokenFactoryAddressUpdated(_newAddress);
+    }
+
+    function updateVotingToken(address _newVotingToken) internal {
+        require(_newVotingToken != address(0), "INVALID_ADDRESS");
+        require(_newVotingToken != address(votingToken), "New voting token must be different");
+        votingToken = IBurnableToken(_newVotingToken);
+        votingTokenSet = true; // Consideration: Depending on your use case, you might want to allow resetting this flag.
+        emit VotingTokenUpdated(_newVotingToken);
     }
 
     function getProposal(uint256 _proposalId) public view returns (ProposalType, address, uint256, address, bool, uint256, uint256) {
