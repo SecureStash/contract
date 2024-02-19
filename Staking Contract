@@ -1,0 +1,192 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract StakingContractFactory is Ownable, ReentrancyGuard {
+    uint256 public creationFee;
+    address payable public feeRecipient;
+    address[] public createdContracts;
+
+    event StakingContractCreated(address indexed owner, address indexed stakingContract, uint256 creationFee);
+
+    constructor(uint256 _creationFee, address payable _feeRecipient) {
+        require(_feeRecipient != address(0), "INVALID_RECIPIENT");
+        creationFee = _creationFee;
+        feeRecipient = _feeRecipient;
+    }
+
+    function createStakingContract(
+        address _stakingToken,
+        address _rewardToken,
+        uint256 _rewardRate,
+        uint256 _unstakeDurationDays,
+        bool _rewardsEnabled
+    ) public payable nonReentrant returns (address) {
+        require(msg.value == creationFee, "INCORRECT_FEES");
+        feeRecipient.transfer(msg.value);
+
+        StakingContract newStakingContract = new StakingContract(
+            _stakingToken,
+            _rewardToken,
+            _rewardRate,
+            _unstakeDurationDays,
+            _rewardsEnabled,
+            msg.sender
+        );
+
+        payable(owner()).transfer(msg.value);
+        createdContracts.push(address(newStakingContract));
+
+        emit StakingContractCreated(msg.sender, address(newStakingContract), creationFee);
+
+        return address(newStakingContract);
+    }
+
+    function updateCreationFee(uint256 _newFee) public onlyOwner {
+        creationFee = _newFee;
+    }
+
+    function updateFeeRecipient(address payable _newRecipient) public onlyOwner {
+        require(_newRecipient != address(0), "INVALID_RECIPIENT");
+        feeRecipient = _newRecipient;
+    }
+
+    function getCreatedContracts() public view returns (address[] memory) {
+        return createdContracts;
+    }
+}
+
+contract StakingContract is ReentrancyGuard, Ownable {
+    IERC20 public stakingToken;
+    IERC20 public rewardToken;
+
+    uint256 public rewardRate;
+    uint256 public unstakeDuration;
+    bool public rewardsEnabled;
+
+    struct StakingInfo {
+        uint256 amountStaked;
+        uint256 rewardDebt;
+        uint256 unstakeTime;
+        uint256 pendingUnstake;
+    }
+
+    mapping(address => StakingInfo) public stakers;
+
+    uint256 public totalStaked;
+    uint256 public totalPendingUnstake;
+
+    event Staked(address indexed staker, uint256 amount);
+    event UnstakeRequested(address indexed staker, uint256 amount);
+    event Unstaked(address indexed staker, uint256 amount);
+    event RewardClaimed(address indexed staker, uint256 reward);
+    event RewardsToggled(bool enabled);
+
+    constructor(
+        address _stakingToken,
+        address _rewardToken,
+        uint256 _rewardRate,
+        uint256 _unstakeDurationDays,
+        bool _rewardsEnabled,
+        address _owner
+    ) Ownable() {
+        stakingToken = IERC20(_stakingToken);
+        rewardToken = IERC20(_rewardToken);
+        rewardRate = _rewardRate;
+        unstakeDuration = _unstakeDurationDays * 1 days;
+        rewardsEnabled = _rewardsEnabled;
+        transferOwnership(_owner);
+    }
+
+    function stake(uint256 _amount) public nonReentrant {
+        require(_amount > 0, "Cannot stake 0");
+
+        StakingInfo storage staker = stakers[msg.sender];
+        require(stakingToken.transferFrom(msg.sender, address(this), _amount), "Transfer failed");
+        staker.amountStaked += _amount;
+        totalStaked += _amount;
+
+        emit Staked(msg.sender, _amount);
+    }
+
+    function requestUnstake(uint256 _amount) public nonReentrant {
+        StakingInfo storage staker = stakers[msg.sender];
+        require(_amount > 0 && _amount <= staker.amountStaked, "Invalid unstake amount");
+
+        staker.amountStaked -= _amount;
+        staker.pendingUnstake += _amount;
+        staker.unstakeTime = block.timestamp + unstakeDuration;
+        totalPendingUnstake += _amount;
+
+        emit UnstakeRequested(msg.sender, _amount);
+    }
+
+    function unstake() public nonReentrant {
+        StakingInfo storage staker = stakers[msg.sender];
+        require(block.timestamp >= staker.unstakeTime, "Unstake period not reached");
+        require(staker.pendingUnstake > 0, "No pending unstake");
+
+        uint256 amount = staker.pendingUnstake;
+        require(stakingToken.transfer(msg.sender, amount), "Transfer failed");
+        totalPendingUnstake -= amount;
+        staker.pendingUnstake = 0;
+
+        emit Unstaked(msg.sender, amount);
+    }
+
+    function claimReward() public nonReentrant {
+        require(rewardsEnabled, "Rewards are disabled");
+
+        StakingInfo storage staker = stakers[msg.sender];
+        uint256 reward = calculateReward(msg.sender);
+
+        require(reward > 0, "No rewards available");
+        require(rewardToken.transfer(msg.sender, reward), "Transfer failed");
+
+        staker.rewardDebt += reward;
+
+        emit RewardClaimed(msg.sender, reward);
+    }
+
+    function calculateReward(address _staker) public view returns (uint256) {
+        if (!rewardsEnabled) return 0;
+
+        StakingInfo storage staker = stakers[_staker];
+        // Implement updated reward calculation logic based on your requirements
+        uint256 reward = (staker.amountStaked * rewardRate) / 1e18; // Example
+        return reward - staker.rewardDebt;
+    }
+
+    function toggleRewards() public onlyOwner {
+        rewardsEnabled = !rewardsEnabled;
+        emit RewardsToggled(rewardsEnabled);
+    }
+
+    function updateUnstakeDuration(uint256 _days) public onlyOwner {
+        unstakeDuration = _days * 1 days;
+    }
+
+    function updateRewardRate(uint256 _newRate) public onlyOwner {
+        rewardRate = _newRate;
+    }
+
+    function getStakerTokenBalance(address _staker) public view returns (uint256) {
+        return stakingToken.balanceOf(_staker);
+    }
+
+    function getStakerAmountStaked(address _staker) public view returns (uint256) {
+        return stakers[_staker].amountStaked;
+    }
+
+    function getStakerPendingUnstake(address _staker) public view returns (uint256) {
+        return stakers[_staker].pendingUnstake;
+    }
+
+    function getStakingTokenDecimals() public view returns (uint8) {
+        return IERC20Metadata(address(stakingToken)).decimals();
+    }
+}
