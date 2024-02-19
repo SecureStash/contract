@@ -375,7 +375,7 @@ contract SC20Token is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
 
         uint256 stakingBalanceTotal = 0;
         for (uint i = 0; i < stakingTokenContracts.length; i++) {
-            stakingBalanceTotal += IStakingTokenContract(stakingTokenContracts[i]).balanceOf(address(this));
+            stakingBalanceTotal += IStakingContract(stakingTokenContracts[i]).balanceOf(address(this));
         }
 
         // Subtracting the total of locked, vested, and staking balances from the total supply
