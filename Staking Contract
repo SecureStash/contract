@@ -106,6 +106,7 @@ contract StakingContract is ReentrancyGuard, Ownable {
         require(_amount > 0, "Cannot stake 0");
 
         StakingInfo storage staker = stakers[msg.sender];
+        //stakingToken.transferFrom(msg.sender, address(this), _amount);
         require(stakingToken.transferFrom(msg.sender, address(this), _amount), "Transfer failed");
         staker.amountStaked += _amount;
         totalStaked += _amount;
@@ -121,6 +122,7 @@ contract StakingContract is ReentrancyGuard, Ownable {
         staker.pendingUnstake += _amount;
         staker.unstakeTime = block.timestamp + unstakeDuration;
         totalPendingUnstake += _amount;
+        totalStaked -= _amount;
 
         emit UnstakeRequested(msg.sender, _amount);
     }
@@ -131,6 +133,7 @@ contract StakingContract is ReentrancyGuard, Ownable {
         require(staker.pendingUnstake > 0, "No pending unstake");
 
         uint256 amount = staker.pendingUnstake;
+        //stakingToken.transfer(msg.sender, amount);
         require(stakingToken.transfer(msg.sender, amount), "Transfer failed");
         totalPendingUnstake -= amount;
         staker.pendingUnstake = 0;
@@ -148,6 +151,7 @@ contract StakingContract is ReentrancyGuard, Ownable {
         require(rewardToken.transfer(msg.sender, reward), "Transfer failed");
 
         staker.rewardDebt += reward;
+        //rewardToken.transfer(msg.sender, reward);
 
         emit RewardClaimed(msg.sender, reward);
     }
@@ -188,5 +192,9 @@ contract StakingContract is ReentrancyGuard, Ownable {
 
     function getStakingTokenDecimals() public view returns (uint8) {
         return IERC20Metadata(address(stakingToken)).decimals();
+    }
+
+    function balanceOf(address _account) public view returns (uint256) {
+        return stakers[_account].amountStaked;
     }
 }
