@@ -38,7 +38,6 @@ contract StakingContractFactory is Ownable, ReentrancyGuard {
             msg.sender
         );
 
-        payable(owner()).transfer(msg.value);
         createdContracts.push(address(newStakingContract));
 
         emit StakingContractCreated(msg.sender, address(newStakingContract), creationFee);
@@ -77,8 +76,8 @@ contract StakingContract is ReentrancyGuard, Ownable {
 
     mapping(address => StakingInfo) public stakers;
 
-    uint256 public totalStaked;
-    uint256 public totalPendingUnstake;
+    uint256 private totalStaked;
+    uint256 private totalPendingUnstake;
 
     event Staked(address indexed staker, uint256 amount);
     event UnstakeRequested(address indexed staker, uint256 amount);
@@ -194,7 +193,12 @@ contract StakingContract is ReentrancyGuard, Ownable {
         return IERC20Metadata(address(stakingToken)).decimals();
     }
 
-    function balanceOf(address _account) public view returns (uint256) {
-        return stakers[_account].amountStaked;
+    function TotalStaked() public view returns (uint256) {
+        return totalStaked;
     }
+
+    function TotalPendingUnstake() public view returns (uint256) {
+        return totalPendingUnstake;
+    }
+
 }
