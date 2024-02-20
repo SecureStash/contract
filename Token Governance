@@ -53,6 +53,8 @@ contract Governance is ReentrancyGuard {
     address public owner;
     IBurnableToken public votingToken;
     bool private votingTokenSet;
+    bool private tokenFactoryAddressSet;
+    bool private stakingContractSet;
     uint256 public minimumQuorum;
     uint256 public votingPeriod;
     uint256 public maxVotingPowerPercentage;
@@ -99,18 +101,23 @@ contract Governance is ReentrancyGuard {
     }
 
     constructor(
-        address _tokenFactoryAddress, 
         uint256 _minimumQuorum, 
         uint256 _votingPeriod, 
         uint256 _maxVotingPowerPercentage, 
         uint256 _proposalCreationThreshold
         ) {
         owner = msg.sender;
-        tokenFactoryAddress = _tokenFactoryAddress;
         minimumQuorum = _minimumQuorum;
         votingPeriod = _votingPeriod;
         maxVotingPowerPercentage = _maxVotingPowerPercentage;
         proposalCreationThreshold = _proposalCreationThreshold;
+    }
+
+    function setTokenFactory(address _tokenFactoryAddress) public onlyOwner {
+        require(!tokenFactoryAddressSet, "Token Factory address already set");
+        tokenFactoryAddress = _tokenFactoryAddress;
+        tokenFactoryAddressSet = true;
+        emit TokenFactoryAddressUpdated(_tokenFactoryAddress);
     }
 
     function setVotingToken(address _votingToken) public onlyOwner {
@@ -121,6 +128,7 @@ contract Governance is ReentrancyGuard {
     }
 
     function setStakingContract(address _stakingContract) public onlyOwner {
+        require(!stakingContractSet, "Staking Contract already set");
         stakingContractAddress = _stakingContract;
         emit StakingContractUpdated(_stakingContract);
     }
@@ -278,7 +286,7 @@ contract Governance is ReentrancyGuard {
         require(_newVotingToken != address(0), "INVALID_ADDRESS");
         require(_newVotingToken != address(votingToken), "New voting token must be different");
         votingToken = IBurnableToken(_newVotingToken);
-        votingTokenSet = true; // Consideration: Depending on your use case, you might want to allow resetting this flag.
+        votingTokenSet = true;
         emit VotingTokenUpdated(_newVotingToken);
     }
 
