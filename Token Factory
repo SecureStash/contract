@@ -10,7 +10,8 @@ interface IVestedTokenContract {
 }
 
 interface IStakingContract {
-    function balanceOf(address _account) external view returns (uint256);
+    function TotalStaked() external view returns (uint256);
+    function TotalPendingUnstake() external view returns (uint256);
 }
 
 interface ITokenFactory {
@@ -375,7 +376,10 @@ contract SC20Token is ERC20, ERC20Burnable, Ownable, ReentrancyGuard {
 
         uint256 stakingBalanceTotal = 0;
         for (uint i = 0; i < stakingTokenContracts.length; i++) {
-            stakingBalanceTotal += IStakingContract(stakingTokenContracts[i]).balanceOf(address(this));
+            uint256 totalStaked = IStakingContract(stakingTokenContracts[i]).TotalStaked();
+            uint256 totalPendingUnstake = IStakingContract(stakingTokenContracts[i]).TotalPendingUnstake();
+            
+            stakingBalanceTotal += totalStaked + totalPendingUnstake;
         }
 
         // Subtracting the total of locked, vested, and staking balances from the total supply
