@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 interface IStakingContract {
     function balanceOf(address account) external view returns (uint256);
-    function totalStaked() external view returns (uint256);
+    function TotalStaked() external view returns (uint256);
 }
 
 interface ITokenFactory {
@@ -199,7 +199,7 @@ contract Governance is ReentrancyGuard {
         require(!p.executed, "Proposal already executed");
         require(block.timestamp >= p.startTime && block.timestamp <= p.endTime, "Voting period is over");
 
-        uint256 totalStaked = stakingContract.totalStaked();
+        uint256 totalStaked = stakingContract.TotalStaked();
         uint256 votingPower = (voterStake * 100) / totalStaked;
         uint256 maxVotingPower = (totalStaked * maxVotingPowerPercentage) / 100;
         if (voterStake > maxVotingPower) {
@@ -303,6 +303,21 @@ contract Governance is ReentrancyGuard {
     function getProposal(uint256 _proposalId) public view returns (ProposalType, address, uint256, address, bool, uint256, uint256) {
         Proposal storage p = proposals[_proposalId];
         return (p.proposalType, p.targetContract, p.numericValue, p.addrValue, p.executed, p.startTime, p.endTime);
+    }
+
+    function getVotingPower(address _stakerAddress) public view returns (uint256) {
+        IStakingContract stakingContract = IStakingContract(stakingContractAddress);
+        uint256 voterStake = stakingContract.balanceOf(_stakerAddress);
+        uint256 totalStaked = stakingContract.TotalStaked();
+
+        if(totalStaked == 0) return 0;
+        uint256 votingPower = (voterStake * 100) / totalStaked;
+        uint256 maxVotingPower = (totalStaked * maxVotingPowerPercentage) / 100;
+
+        if (voterStake > maxVotingPower) {
+            votingPower = maxVotingPowerPercentage;
+        }
+        return votingPower;
     }
 
 }
