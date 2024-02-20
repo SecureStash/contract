@@ -62,9 +62,9 @@ contract Governance is ReentrancyGuard {
     uint256 public nextProposalId;
 
     enum ProposalType { 
-        UpdateCreationFee, UpdateFeeRecipient, UpdateGovernanceContract, UpdateTokenFactoryAddress, UpdateVotingToken,
+        UpdateCreationFee, UpdateFeeRecipient, UpdateGovernanceContract, UpdateTokenFactoryAddress, UpdateVotingToken, UpdateStakingContractAddress,
         RemoveLockedTokenContract, RemoveVestedTokenContract, RemoveStakingTokenContract, RemoveLiquidityPool,
-        UpdateBuyTax, UpdateSellTax, UpdateBurnTax, MintTokens, UpdateTreasury, DisableMint
+        UpdateBuyTax, UpdateSellTax, UpdateBurnTax, MintTokens, UpdateTreasury, DisableMint 
     }
 
     struct VotingState {
@@ -236,6 +236,9 @@ contract Governance is ReentrancyGuard {
         } else if (p.proposalType == ProposalType.UpdateVotingToken) {
             require(p.addrValue != address(0), "INVALID_ADDRESS");
             updateVotingToken(p.addrValue);
+        } else if (p.proposalType == ProposalType.UpdateStakingContractAddress) {
+            require(p.addrValue != address(0), "INVALID_ADDRESS");
+            updateStakingContractAddress(p.addrValue);
         } else {
             ISC20Token targetContract = ISC20Token(p.targetContract);
             executeTokenRelatedProposal(p, targetContract);
@@ -284,10 +287,17 @@ contract Governance is ReentrancyGuard {
 
     function updateVotingToken(address _newVotingToken) internal {
         require(_newVotingToken != address(0), "INVALID_ADDRESS");
-        require(_newVotingToken != address(votingToken), "New voting token must be different");
+        require(_newVotingToken != address(votingToken), "SAME_ADDRESS");
         votingToken = IBurnableToken(_newVotingToken);
         votingTokenSet = true;
         emit VotingTokenUpdated(_newVotingToken);
+    }
+
+    function updateStakingContractAddress(address _newStakingContract) internal {
+        require(_newStakingContract != address(0), "INVALID_ADDRESS");
+        require(_newStakingContract != stakingContractAddress, "SAME_ADDRESS");
+        stakingContractAddress = _newStakingContract;
+        emit StakingContractUpdated(_newStakingContract);
     }
 
     function getProposal(uint256 _proposalId) public view returns (ProposalType, address, uint256, address, bool, uint256, uint256) {
