@@ -35,12 +35,12 @@ contract StakingContractFactory is Ownable, ReentrancyGuard {
             _rewardRate,
             _unstakeDurationDays,
             _rewardsEnabled,
-            msg.sender
+            _msgSender()
         );
 
         createdContracts.push(address(newStakingContract));
 
-        emit StakingContractCreated(msg.sender, address(newStakingContract), creationFee);
+        emit StakingContractCreated(_msgSender(), address(newStakingContract), creationFee);
 
         return address(newStakingContract);
     }
@@ -67,11 +67,15 @@ contract StakingContract is ReentrancyGuard, Ownable {
     uint256 public unstakeDuration;
     bool public rewardsEnabled;
 
+    struct UnstakeRequest {
+        uint256 amount;
+        uint256 unstakeTime;
+    }
+
     struct StakingInfo {
         uint256 amountStaked;
         uint256 rewardDebt;
-        uint256 unstakeTime;
-        uint256 pendingUnstake;
+        UnstakeRequest[] unstakeRequests;
     }
 
     mapping(address => StakingInfo) public stakers;
@@ -104,55 +108,73 @@ contract StakingContract is ReentrancyGuard, Ownable {
     function stake(uint256 _amount) public nonReentrant {
         require(_amount > 0, "Cannot stake 0");
 
-        StakingInfo storage staker = stakers[msg.sender];
-        //stakingToken.transferFrom(msg.sender, address(this), _amount);
-        require(stakingToken.transferFrom(msg.sender, address(this), _amount), "Transfer failed");
+        StakingInfo storage staker = stakers[_msgSender()];
+        require(stakingToken.transferFrom(_msgSender(), address(this), _amount), "Transfer failed");
         staker.amountStaked += _amount;
         totalStaked += _amount;
 
-        emit Staked(msg.sender, _amount);
+        emit Staked(_msgSender(), _amount);
     }
 
     function requestUnstake(uint256 _amount) public nonReentrant {
-        StakingInfo storage staker = stakers[msg.sender];
+        StakingInfo storage staker = stakers[_msgSender()];
         require(_amount > 0 && _amount <= staker.amountStaked, "Invalid unstake amount");
 
         staker.amountStaked -= _amount;
-        staker.pendingUnstake += _amount;
-        staker.unstakeTime = block.timestamp + unstakeDuration;
-        totalPendingUnstake += _amount;
+        staker.unstakeRequests.push(UnstakeRequest({
+            amount: _amount,
+            unstakeTime: block.timestamp + unstakeDuration
+        }));
         totalStaked -= _amount;
+        totalPendingUnstake += _amount;
 
-        emit UnstakeRequested(msg.sender, _amount);
+        emit UnstakeRequested(_msgSender(), _amount);
     }
 
     function unstake() public nonReentrant {
-        StakingInfo storage staker = stakers[msg.sender];
-        require(block.timestamp >= staker.unstakeTime, "Unstake period not reached");
-        require(staker.pendingUnstake > 0, "No pending unstake");
+        StakingInfo storage staker = stakers[_msgSender()];
+        uint256 totalUnstakedAmount = 0;
 
-        uint256 amount = staker.pendingUnstake;
-        //stakingToken.transfer(msg.sender, amount);
-        require(stakingToken.transfer(msg.sender, amount), "Transfer failed");
-        totalPendingUnstake -= amount;
-        staker.pendingUnstake = 0;
+        for (uint256 i = 0; i < staker.unstakeRequests.length; ) {
+            if (block.timestamp >= staker.unstakeRequests[i].unstakeTime) {
+                uint256 amountToUnstake = staker.unstakeRequests[i].amount;
+                require(stakingToken.transfer(_msgSender(), amountToUnstake), "Transfer failed");
 
-        emit Unstaked(msg.sender, amount);
+                totalUnstakedAmount += amountToUnstake;
+                totalPendingUnstake -= amountToUnstake;
+                removeUnstakeRequest(staker.unstakeRequests, i);
+            // No need to increment i, as the next item has shifted to current position
+            } else {
+                i++;    // Only increment if we didn't remove an item, to avoid skipping
+
+            }
+        }
+
+        require(totalUnstakedAmount > 0, "No pending unstake available or unstake period not reached");
+        emit Unstaked(_msgSender(), totalUnstakedAmount);
+    }
+
+    function removeUnstakeRequest(UnstakeRequest[] storage requests, uint index) internal {
+        require(index < requests.length, "Index out of bounds");
+
+        for (uint256 i = index; i < requests.length - 1; i++) {
+            requests[i] = requests[i + 1];
+        }
+        requests.pop();
     }
 
     function claimReward() public nonReentrant {
         require(rewardsEnabled, "Rewards are disabled");
 
-        StakingInfo storage staker = stakers[msg.sender];
-        uint256 reward = calculateReward(msg.sender);
+        StakingInfo storage staker = stakers[_msgSender()];
+        uint256 reward = calculateReward(_msgSender());
 
         require(reward > 0, "No rewards available");
-        require(rewardToken.transfer(msg.sender, reward), "Transfer failed");
+        require(rewardToken.transfer(_msgSender(), reward), "Transfer failed");
 
         staker.rewardDebt += reward;
-        //rewardToken.transfer(msg.sender, reward);
 
-        emit RewardClaimed(msg.sender, reward);
+        emit RewardClaimed(_msgSender(), reward);
     }
 
     function calculateReward(address _staker) public view returns (uint256) {
@@ -186,7 +208,12 @@ contract StakingContract is ReentrancyGuard, Ownable {
     }
 
     function getStakerPendingUnstake(address _staker) public view returns (uint256) {
-        return stakers[_staker].pendingUnstake;
+        StakingInfo storage staker = stakers[_staker];
+        uint256 totalPending = 0;
+        for (uint256 i = 0; i < staker.unstakeRequests.length; i++) {
+            totalPending += staker.unstakeRequests[i].amount;
+        }
+        return totalPending;
     }
 
     function getStakingTokenDecimals() public view returns (uint8) {
