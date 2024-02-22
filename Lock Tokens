@@ -69,9 +69,9 @@ contract TokenLock is Ownable, ReentrancyGuard {
         transferOwnership(_owner);
     }
 
-    function createLock(uint256 _amount, DurationType _durationType, uint256 _duration) public onlyOwner {
+    function lockTokens(uint256 _amount, DurationType _durationType, uint256 _duration) public onlyOwner {
         require(_amount > 0, "Amount must be greater than 0");
-        uint256 lockEndTime = calculateLockEndTime(_duration, _durationType);
+        uint256 lockEndTime = calculateLockEndTime(_durationType, _duration);
         require(token.transferFrom(_msgSender(), address(this), _amount), "Transfer failed");
 
         locks.push(Lock({
@@ -122,10 +122,6 @@ contract TokenLock is Ownable, ReentrancyGuard {
         }
     }
 
-    function getStakingTokenDecimals() public view returns (uint8) {
-        return IERC20Metadata(address(token)).decimals();
-    }
-
     function getLockPeriod() public view returns (uint256[] memory amounts, uint256[] memory unlockTimes, uint256 totalLocked) {
         uint256 lockCount = 0;
         totalLocked = 0;
@@ -151,5 +147,9 @@ contract TokenLock is Ownable, ReentrancyGuard {
                 currentIndex++;
             }
         }
+    }
+
+    function getStakingTokenDecimals() public view returns (uint8) {
+        return IERC20Metadata(address(token)).decimals();
     }
 }
