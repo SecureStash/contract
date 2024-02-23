@@ -71,7 +71,7 @@ contract TokenLock is Ownable, ReentrancyGuard {
 
     function lockTokens(uint256 _amount, DurationType _durationType, uint256 _duration) public onlyOwner {
         require(_amount > 0, "Amount must be greater than 0");
-        uint256 lockEndTime = calculateLockEndTime(_durationType, _duration);
+        uint256 lockEndTime = calculateLockEndTime(_duration, _durationType);
         require(token.transferFrom(_msgSender(), address(this), _amount), "Transfer failed");
 
         locks.push(Lock({
